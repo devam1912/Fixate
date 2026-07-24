@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fixate"
+version = "0.1.0"
+description = "Self-Healing CI/Codebase Agent"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "networkx>=3.0",
+    "chromadb>=0.4.0",
+    "pydantic>=2.0.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+    "pytest>=7.0.0",
+    "docker>=6.0.0",
+    "google-genai>=0.1.0",
+    "requests>=2.28.0",
+    "python-dotenv>=1.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest-asyncio>=0.21.0",
+    "httpx>=0.24.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
