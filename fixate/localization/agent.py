@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from fixate.graph.builder import CodebaseGraphBuilder
 from fixate.graph.traversal import GraphTraversal
 from fixate.graph.base_parser import CodeSymbol
-from fixate.localization.parser import ParsedFailure
+from fixate.localization.parser import FailureTracebackParser, ParsedFailure
 from fixate.llm.base import BaseLLMProvider
 from fixate.llm.factory import get_llm_provider
 
@@ -53,6 +53,7 @@ class FailureLocalizationAgent:
         self.builder = graph_builder
         self.traversal = GraphTraversal(graph_builder)
         self.llm = llm_provider or get_llm_provider()
+        self.parser = FailureTracebackParser()
 
     def get_deterministic_candidates(self, failure: ParsedFailure) -> List[CodeSymbol]:
         """Extract candidate root-cause functions using deterministic graph backward traversal.
@@ -165,3 +166,30 @@ class FailureLocalizationAgent:
                 )
             )
         return fallback_suspects
+
+    def localize_failure(self, log_output: str) -> LocalizationResult:
+        """Main end-to-end entry point for failure localization.
+        
+        Args:
+            log_output: Raw string output from pytest or exception traceback.
+            
+        Returns:
+            LocalizationResult with ranked suspect functions and failure details.
+        """
+        # 1. Parse raw log
+        failure = self.parser.parse_log(log_output)
+        logger.info(f"Parsed failure: {failure.failing_file}:{failure.failing_line} ({failure.exception_type})")
+
+        # 2. Extract graph candidates
+        candidates = self.get_deterministic_candidates(failure)
+        logger.info(f"Extracted {len(candidates)} deterministic candidates via graph traversal")
+
+        # 3. LLM plausibility ranking
+        suspects = self.rank_candidates_with_llm(failure, candidates)
+
+        return LocalizationResult(
+            failing_test=failure.test_name,
+            exception_type=failure.exception_type,
+            exception_message=failure.exception_message,
+            suspect_functions=suspects,
+        )
