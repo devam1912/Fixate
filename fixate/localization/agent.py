@@ -30,6 +30,16 @@ class LocalizationResult(BaseModel):
     suspect_functions: List[SuspectFunction]
 
 
+class CandidateRank(BaseModel):
+    symbol_id: str
+    rank: int
+    plausibility_reason: str
+
+
+class LLMRankingResponse(BaseModel):
+    rankings: List[CandidateRank]
+
+
 class FailureLocalizationAgent:
     """Localization Agent that uses AST dependency graph traversal to gather candidate functions,
     then uses an LLM to rank plausibility of root causes.
@@ -73,3 +83,85 @@ class FailureLocalizationAgent:
                     candidates.append(sym)
 
         return candidates
+
+    def rank_candidates_with_llm(
+        self, failure: ParsedFailure, candidates: List[CodeSymbol]
+    ) -> List[SuspectFunction]:
+        """Use LLM to reason about root-cause plausibility given the failure error and candidate code."""
+        if not candidates:
+            logger.warning("No candidate functions provided for LLM ranking.")
+            return []
+
+        # Build context prompt listing candidate functions
+        candidate_snippets = []
+        id_map = {}
+        for idx, cand in enumerate(candidates, start=1):
+            id_map[cand.id] = cand
+            candidate_snippets.append(
+                f"Candidate #{idx} [ID: {cand.id}] (File: {cand.file_path}, Lines {cand.start_line}-{cand.end_line}):\n"
+                f"```python\n{cand.code}\n```\n"
+            )
+
+        prompt = (
+            f"You are a Root Cause Failure Localization Agent.\n"
+            f"A test failure occurred:\n"
+            f"- Failing Test: {failure.test_name}\n"
+            f"- Error File/Line: {failure.failing_file}:{failure.failing_line}\n"
+            f"- Exception Type: {failure.exception_type}\n"
+            f"- Exception Message: {failure.exception_message}\n\n"
+            f"Below is a list of candidate root-cause functions extracted strictly via codebase dependency graph traversal:\n\n"
+            + "\n".join(candidate_snippets) +
+            f"\nAnalyze the exception and candidate source code.\n"
+            f"Rank the top candidate functions (1 to {min(3, len(candidates))}) by root-cause plausibility.\n"
+            f"Explain clearly why the function contains the root bug rather than just being a downstream symptom."
+        )
+
+        sys_instruction = (
+            "You are a senior static analysis & debugging engineer. Distinguish root cause from symptoms."
+        )
+
+        try:
+            llm_response: LLMRankingResponse = self.llm.generate_structured(
+                prompt=prompt,
+                response_schema=LLMRankingResponse,
+                system_instruction=sys_instruction,
+            )
+            
+            suspects: List[SuspectFunction] = []
+            seen_ids = set()
+            for item in llm_response.rankings:
+                if item.symbol_id in id_map and item.symbol_id not in seen_ids:
+                    seen_ids.add(item.symbol_id)
+                    cand_sym = id_map[item.symbol_id]
+                    suspects.append(
+                        SuspectFunction(
+                            symbol_id=cand_sym.id,
+                            file_path=cand_sym.file_path,
+                            name=cand_sym.name,
+                            code=cand_sym.code,
+                            rank=item.rank,
+                            plausibility_reason=item.plausibility_reason,
+                        )
+                    )
+            
+            # Sort by rank ascending
+            suspects.sort(key=lambda s: s.rank)
+            if suspects:
+                return suspects[:3]
+        except Exception as exc:
+            logger.error(f"LLM ranking failed, falling back to graph distance order: {exc}")
+
+        # Fallback if LLM fails: rank by order returned by graph traversal
+        fallback_suspects = []
+        for rank_idx, cand in enumerate(candidates[:3], start=1):
+            fallback_suspects.append(
+                SuspectFunction(
+                    symbol_id=cand.id,
+                    file_path=cand.file_path,
+                    name=cand.name,
+                    code=cand.code,
+                    rank=rank_idx,
+                    plausibility_reason="Ranked via AST graph backward walk proximity.",
+                )
+            )
+        return fallback_suspects
