@@ -2,7 +2,7 @@
 
 import re
 import logging
-from typing import List, Optional
+from typing import List
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,6 @@ class FailureTracebackParser:
 
         # 1. Look for Pytest FAILED test header, e.g. "FAILED tests/test_app.py::test_tax - AssertionError: ..."
         pytest_failed_pattern = re.compile(r'FAILED\s+([^\s:]+)::([^\s\-]+)(?:\s*-\s*([A-Za-z0-9_]+Error|\w+):\s*(.*))?')
-        
         for line in lines:
             m = pytest_failed_pattern.search(line)
             if m:
@@ -52,18 +51,30 @@ class FailureTracebackParser:
                 if m.group(4):
                     exception_message = m.group(4).strip()
 
-        # 2. Extract stack frames from standard Python Traceback lines
-        # e.g. File "path/to/file.py", line 42, in function_name
-        frame_pattern = re.compile(r'File\s+["\']([^"\']+)["\'],\s+line\s+(\d+),\s+in\s+([A-Za-z0-9_]+)')
+        # 2. Extract stack frames from standard Python Traceback lines OR Pytest frame lines
+        # Pattern A: File "path/to/file.py", line 42, in function_name
+        frame_pattern_std = re.compile(r'File\s+["\']([^"\']+)["\'],\s+line\s+(\d+),\s+in\s+([A-Za-z0-9_]+)')
+        # Pattern B: path/to/file.py:42: in function_name
+        frame_pattern_pytest = re.compile(r'^([^\s:]+\.py):(\d+):\s+in\s+([A-Za-z0-9_]+)')
+
         for line in lines:
-            m_frame = frame_pattern.search(line)
-            if m_frame:
-                fp = m_frame.group(1)
-                ln = int(m_frame.group(2))
-                fn = m_frame.group(3)
+            line_str = line.strip()
+            m_std = frame_pattern_std.search(line_str)
+            if m_std:
+                fp = m_std.group(1)
+                ln = int(m_std.group(2))
+                fn = m_std.group(3)
+                stack_frames.append(StackFrame(file_path=fp, line_number=ln, function_name=fn))
+                continue
+
+            m_pytest = frame_pattern_pytest.search(line_str)
+            if m_pytest:
+                fp = m_pytest.group(1)
+                ln = int(m_pytest.group(2))
+                fn = m_pytest.group(3)
                 stack_frames.append(StackFrame(file_path=fp, line_number=ln, function_name=fn))
 
-        # If stack frames found, use the last frame as immediate failure point
+        # If stack frames found, set immediate failure point from the last frame
         if stack_frames:
             last_frame = stack_frames[-1]
             failing_file = last_frame.file_path
