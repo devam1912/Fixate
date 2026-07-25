@@ -8,6 +8,33 @@ from fixate.rag.chunker import CodeChunk
 logger = logging.getLogger(__name__)
 
 
+class FastSimpleEmbeddingFunction:
+    """Lightweight deterministic embedding function to eliminate external ONNX model download delays."""
+    def __call__(self, input: List[str]) -> List[List[float]]:
+        return self._embed(input)
+
+    def embed_query(self, input: str | List[str]) -> List[List[float]]:
+        if isinstance(input, str):
+            input = [input]
+        return self._embed(input)
+
+    def embed_documents(self, input: List[str]) -> List[List[float]]:
+        return self._embed(input)
+
+    def _embed(self, input: List[str]) -> List[List[float]]:
+        embeddings = []
+        for text in input:
+            vec = [0.0] * 64
+            for idx, char in enumerate(text[:500]):
+                vec[ord(char) % 64] += 1.0
+            norm = sum(x * x for x in vec) ** 0.5 or 1.0
+            embeddings.append([x / norm for x in vec])
+        return embeddings
+
+    def name(self) -> str:
+        return "fast_simple_embedding"
+
+
 class CodeVectorStore:
     """Vector store for indexing AST code chunks and performing semantic code retrieval."""
 
@@ -21,7 +48,11 @@ class CodeVectorStore:
         try:
             import chromadb
             self._client = chromadb.PersistentClient(path=self.persist_dir)
-            self._collection = self._client.get_or_create_collection(name=self.collection_name)
+            embedding_func = FastSimpleEmbeddingFunction()
+            self._collection = self._client.get_or_create_collection(
+                name=self.collection_name,
+                embedding_function=embedding_func,
+            )
             logger.info(f"Initialized ChromaDB persistent vector store at {self.persist_dir}")
         except Exception as exc:
             logger.warning(f"Could not initialize ChromaDB vector store: {exc}. Using in-memory fallback store.")
@@ -59,7 +90,6 @@ class CodeVectorStore:
                 retrieved: List[CodeChunk] = []
                 if res and "ids" in res and res["ids"]:
                     retrieved_ids = res["ids"][0]
-                    # Map back to memory chunks or reconstruct
                     id_to_chunk = {c.chunk_id: c for c in self._memory_chunks}
                     for chunk_id in retrieved_ids:
                         if chunk_id in id_to_chunk:
