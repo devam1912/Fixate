@@ -1,0 +1,14 @@
+# Isolated Sandbox Container Environment for AI Patch Verification
+FROM python:3.11-slim
+
+# Set sandbox security and working directory
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /sandbox
+
+# Install testing dependencies
+RUN pip install --no-cache-dir pytest requests pydantic networkx
+
+# Default command runs pytest on sandbox workspace
+CMD ["pytest", "-v"]
