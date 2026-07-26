@@ -50,6 +50,36 @@ class VerificationAgent:
         self.applicator = PatchApplicator()
         self.max_attempts = max_attempts
 
+    def generate_honest_failure_report(
+        self,
+        suspect: SuspectFunction,
+        failure: ParsedFailure,
+        attempts: List[VerificationAttempt],
+    ) -> str:
+        """Produce a comprehensive, honest diagnostic trail when retries are exhausted."""
+        report = []
+        report.append(f"# Diagnostic Failure Report: Fixate Agent Unresolved Issue")
+        report.append(f"**Target Suspect Function**: `{suspect.name}` ({suspect.file_path})")
+        report.append(f"**Original Failure**: {failure.exception_type}: {failure.exception_message} in `{failure.test_name}`")
+        report.append(f"**Attempts Exhausted**: {len(attempts)} / {self.max_attempts}\n")
+        report.append(f"## Summary of Attempts & Learned Information:")
+
+        for att in attempts:
+            report.append(f"### Attempt #{att.attempt_number}:")
+            report.append(f"- **Explanation**: {att.patch.explanation}")
+            report.append(f"- **Proposed Diff**:\n```diff\n{att.patch.unified_diff}\n```")
+            report.append(f"- **Result**: FAILED (Exit Code {att.sandbox_result.exit_code})")
+            if att.error_summary:
+                report.append(f"- **Sandbox Error Output**:\n```\n{att.error_summary[:400]}\n```\n")
+
+        report.append(f"## Human Engineer Recommendation:")
+        report.append(
+            f"The agent attempted {len(attempts)} distinct patch variations, but sandboxed test execution did not pass.\n"
+            f"Human review recommended for `{suspect.file_path}` around line {suspect.code.splitlines()[0] if suspect.code else 1}.\n"
+            f"Check if structural refactoring or external API contract changes are required."
+        )
+        return "\n".join(report)
+
     def verify_fix(
         self,
         repo_dir: str,
@@ -58,18 +88,7 @@ class VerificationAgent:
         failure: ParsedFailure,
         past_fix_examples: List[str] = None,
     ) -> VerificationResult:
-        """Run the bounded retry verification loop (max 3 attempts).
-        
-        Args:
-            repo_dir: Source code repository root directory.
-            graph_builder: Codebase AST dependency graph.
-            suspect: Ranked suspect function identified by localization.
-            failure: Parsed CI failure details.
-            past_fix_examples: Diffs from past fixes for RAG context.
-            
-        Returns:
-            VerificationResult containing final pass/fail status and audit history.
-        """
+        """Run the bounded retry verification loop (max 3 attempts)."""
         attempts_history: List[VerificationAttempt] = []
         previous_error: Optional[str] = None
 
@@ -82,10 +101,8 @@ class VerificationAgent:
         for attempt in range(1, self.max_attempts + 1):
             logger.info(f"--- Verification Attempt {attempt}/{self.max_attempts} ---")
 
-            # 1. Prepare fresh checkout in isolated temporary directory
             tmp_checkout = tempfile.mkdtemp(prefix=f"fixate_sandbox_attempt_{attempt}_")
             try:
-                # Copy codebase contents to temporary checkout
                 for item in os.listdir(repo_dir):
                     if item in (".git", "__pycache__", "venv", ".venv", "chroma_db"):
                         continue
@@ -96,7 +113,6 @@ class VerificationAgent:
                     else:
                         shutil.copy2(s, d)
 
-                # 2. Request patch from PatchGeneratorAgent
                 request = PatchRequest(
                     target_file=suspect.file_path,
                     suspect_function_name=suspect.name,
@@ -126,12 +142,10 @@ class VerificationAgent:
                     previous_error = err_msg
                     continue
 
-                # Apply patch to fresh checkout file on disk
                 target_disk_file = os.path.join(tmp_checkout, suspect.file_path)
                 if os.path.exists(target_disk_file):
                     self.applicator.apply_patch_to_file(target_disk_file, patch.unified_diff)
 
-                # 3. Execute targeted tests in isolated sandbox
                 run_res = self.runner.run_targeted_verification(
                     workspace_dir=tmp_checkout,
                     failing_test=failure.failing_file,
@@ -147,7 +161,6 @@ class VerificationAgent:
                 )
                 attempts_history.append(attempt_record)
 
-                # 4. Check real sandbox test outcome
                 if run_res.passed:
                     logger.info(f"SUCCESS: Patch verified cleanly by passing sandboxed test run on attempt {attempt}!")
                     return VerificationResult(
@@ -158,19 +171,23 @@ class VerificationAgent:
                         failure_report=None,
                     )
 
-                # On failure, package new error and feed back into next attempt loop
                 previous_error = run_res.stderr or run_res.stdout[-1000:]
                 logger.warning(f"Attempt {attempt} failed tests in sandbox. Feed back error into next attempt.")
 
             finally:
-                # Clean up temporary sandbox checkout
                 shutil.rmtree(tmp_checkout, ignore_errors=True)
 
-        # Retry cap exhausted: return failure result (covered in Commit 6.5)
+        # Retry cap exhausted: generate honest failure diagnostic report
+        failure_report = self.generate_honest_failure_report(
+            suspect=suspect,
+            failure=failure,
+            attempts=attempts_history,
+        )
+
         return VerificationResult(
             success=False,
             total_attempts=self.max_attempts,
             verified_patch=None,
             attempts_history=attempts_history,
-            failure_report=f"Attempt limit ({self.max_attempts}) reached without passing test run.",
+            failure_report=failure_report,
         )
