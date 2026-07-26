@@ -1,7 +1,7 @@
-"""Patch Generator Agent for creating minimal structured unified diffs."""
+"""Patch Generator Agent for creating minimal structured unified diffs with retry validation."""
 
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 
 from fixate.patch.schema import GeneratedPatch, PatchRequest
 from fixate.patch.applicator import PatchApplicator, ApplyPatchResult
@@ -19,14 +19,7 @@ class PatchGeneratorAgent:
         self.applicator = PatchApplicator()
 
     def generate_patch(self, request: PatchRequest) -> GeneratedPatch:
-        """Generate a minimal structured unified diff patch for a given failure request.
-        
-        Args:
-            request: Structured PatchRequest object containing code context and failure details.
-            
-        Returns:
-            GeneratedPatch object containing target file, diff string, and explanation.
-        """
+        """Generate a minimal structured unified diff patch for a given failure request."""
         past_fixes_snippet = ""
         if request.past_fix_examples:
             past_fixes_snippet = (
@@ -92,3 +85,41 @@ class PatchGeneratorAgent:
             explanation="Simulated fallback minimal patch.",
             lines_changed=1,
         )
+
+    def generate_validated_patch(
+        self, request: PatchRequest, max_format_retries: int = 2
+    ) -> Tuple[GeneratedPatch, ApplyPatchResult]:
+        """Generate a patch and validate applicability against target code.
+        
+        If diff application fails syntax check, retries with formatting error hint up to max_format_retries.
+        """
+        curr_request = request
+        last_patch = None
+        last_result = None
+
+        for attempt in range(1, max_format_retries + 1):
+            last_patch = self.generate_patch(curr_request)
+            last_result = self.applicator.apply_diff_to_text(request.suspect_code, last_patch.unified_diff)
+
+            if last_result.success:
+                logger.info(f"Patch format validation passed on attempt {attempt}")
+                return last_patch, last_result
+
+            logger.warning(
+                f"Patch format validation failed on attempt {attempt}: {last_result.error_message}. Retrying..."
+            )
+
+            # Update request with formatting error feedback for LLM retry
+            curr_request = PatchRequest(
+                target_file=request.target_file,
+                suspect_function_name=request.suspect_function_name,
+                suspect_code=request.suspect_code,
+                exception_type=request.exception_type,
+                exception_message=request.exception_message,
+                failing_test_name=request.failing_test_name,
+                related_code_context=request.related_code_context,
+                past_fix_examples=request.past_fix_examples,
+                previous_attempt_error=f"Diff format/syntax error: {last_result.error_message}",
+            )
+
+        return last_patch, last_result
