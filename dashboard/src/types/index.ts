@@ -1,0 +1,81 @@
+export interface TelemetryEvent {
+  event_id: str;
+  timestamp: string;
+  incident_id: string;
+  agent: string;
+  action: string;
+  input_summary: string;
+  output_summary: string;
+  result: 'SUCCESS' | 'FAILURE' | 'IN_PROGRESS' | 'REQUIRES_APPROVAL';
+  details?: any;
+}
+
+export interface GeneratedPatch {
+  target_file: string;
+  unified_diff: string;
+  explanation: string;
+  lines_changed: number;
+}
+
+export interface RiskAssessment {
+  is_risky: boolean;
+  risk_level: 'HIGH' | 'LOW';
+  matched_keywords: string[];
+  reason: string;
+}
+
+export interface IncidentSummary {
+  incident_id: string;
+  state: 'IDLE' | 'LOCALIZING' | 'RETRIEVING' | 'PATCHING' | 'VERIFYING' | 'CHECKING_SAFETY' | 'COMPLETED' | 'FAILED' | 'PENDING_APPROVAL';
+  failing_test: string;
+  exception_type: string;
+  target_file?: string;
+  suspect_function?: string;
+  verified_patch?: GeneratedPatch;
+  risk_assessment?: RiskAssessment;
+  total_attempts: number;
+  failure_report?: string;
+  telemetry_events: TelemetryEvent[];
+}
+
+export interface CodeGraphNode {
+  id: string;
+  label: string;
+  symbol_type: string;
+  file_path: string;
+  is_test: boolean;
+}
+
+export interface CodeGraphEdge {
+  source: string;
+  target: string;
+  relation: string;
+}
+
+export interface CodeGraphData {
+  nodes: CodeGraphNode[];
+  edges: CodeGraphEdge[];
+}
+
+export interface EvalCaseResult {
+  case_id: string;
+  bug_category: string;
+  localization_correct: boolean;
+  first_attempt_passed: bool;
+  final_verified_passed: bool;
+  attempts_used: number;
+  execution_time_seconds: number;
+  estimated_token_cost: number;
+}
+
+export interface EvalScorecard {
+  total_cases: number;
+  successful_fixes: number;
+  localization_accuracy_pct: number;
+  first_attempt_success_pct: number;
+  overall_fix_rate_pct: number;
+  average_attempts_per_case: number;
+  average_execution_time_seconds: number;
+  total_token_cost_usd: number;
+  case_results: EvalCaseResult[];
+}
