@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Database, Code2, ShieldAlert, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { Search, Database, Code2, Cpu, ShieldAlert, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { IncidentSummary } from '../types';
 
 interface PipelineFlowProps {
@@ -32,7 +32,7 @@ export const PipelineFlow: React.FC<PipelineFlowProps> = ({ summary }) => {
       id: 'VERIFYING',
       name: '04. Verification',
       description: `Docker Sandbox Execution (Attempt ${summary?.total_attempts || 0}/3)`,
-      icon: Loader2,
+      icon: Cpu,
     },
     {
       id: 'CHECKING_SAFETY',
@@ -92,7 +92,7 @@ export const PipelineFlow: React.FC<PipelineFlowProps> = ({ summary }) => {
       <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
         {stages.map((stage, idx) => {
           const status = getStageStatus(stage.id);
-          const Icon = stage.icon;
+          const Icon = status === 'active' ? Loader2 : stage.icon;
 
           let cardStyle = 'bg-zinc-950 border-zinc-800/80 text-zinc-600';
           let iconStyle = 'text-zinc-600 bg-zinc-900 border-zinc-800';
@@ -120,7 +120,7 @@ export const PipelineFlow: React.FC<PipelineFlowProps> = ({ summary }) => {
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <div className={`p-2 rounded-lg border ${iconStyle}`}>
-                    <Icon className="w-4 h-4" />
+                    <Icon className={`w-4 h-4 ${status === 'active' ? 'animate-spin' : ''}`} />
                   </div>
                   <span className="text-[10px] font-mono font-bold text-zinc-600">
                     STEP 0{idx + 1}
@@ -139,17 +139,17 @@ export const PipelineFlow: React.FC<PipelineFlowProps> = ({ summary }) => {
               <div className="mt-4 pt-3 border-t border-zinc-800/60 flex items-center justify-between">
                 <span className="text-[10px] font-mono uppercase font-medium">
                   {status === 'completed' && (
-                    <span className="text-emerald-400 flex items-center gap-1.5">
+                    <span className="text-emerald-400 flex items-center gap-1.5 font-bold">
                       <CheckCircle2 className="w-3.5 h-3.5" /> Passed
                     </span>
                   )}
                   {status === 'active' && (
-                    <span className="text-white flex items-center gap-1.5">
+                    <span className="text-white flex items-center gap-1.5 font-bold">
                       <Loader2 className="w-3.5 h-3.5 animate-spin" /> Running...
                     </span>
                   )}
                   {status === 'failed' && (
-                    <span className="text-rose-400 flex items-center gap-1.5">
+                    <span className="text-rose-400 flex items-center gap-1.5 font-bold">
                       <XCircle className="w-3.5 h-3.5" /> Failed
                     </span>
                   )}
