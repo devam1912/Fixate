@@ -1,6 +1,7 @@
 """REST API routes for triggering self-healing incidents, inspecting codebase AST graphs, and running eval benchmarks."""
 
 import os
+import glob
 import shutil
 import tempfile
 import subprocess
@@ -144,7 +145,7 @@ def get_codebase_graph(
 
 @router.post("/incident/trigger")
 def trigger_incident(req: IncidentTriggerRequest):
-    """Trigger dynamic self-healing incident pipeline for ANY GitHub repository URL or codebase path."""
+    """Trigger dynamic self-healing incident pipeline for ANY Python GitHub repository URL or codebase path."""
     target_path = None
     if req.repo_url and req.repo_url.strip():
         target_path = clone_github_repo(req.repo_url)
@@ -156,6 +157,14 @@ def trigger_incident(req: IncidentTriggerRequest):
         target_path = os.path.abspath(req.repo_name)
     else:
         target_path = SAMPLE_REPOS["calculator_app"]
+
+    # Language check: verify repository contains Python files (.py)
+    py_files = glob.glob(os.path.join(target_path, "**", "*.py"), recursive=True)
+    if not py_files:
+        raise HTTPException(
+            status_code=400,
+            detail="Fixate AST Parser & Sandbox runner requires a Python repository containing .py files. Non-Python repository detected.",
+        )
 
     pytest_log = req.pytest_log
 

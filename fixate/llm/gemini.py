@@ -3,7 +3,7 @@
 import os
 import json
 import logging
-from typing import Type, TypeVar
+from typing import Type, TypeVar, get_origin, get_args
 from pydantic import BaseModel
 
 from fixate.llm.base import BaseLLMProvider
@@ -31,7 +31,7 @@ class GeminiProvider(BaseLLMProvider):
         self._model_name = os.getenv("GEMINI_LLM_MODEL") or model_name
         self._client = None
 
-        if self._api_key:
+        if self._api_key and self._api_key != "your_gemini_api_key_here":
             try:
                 from google import genai
                 self._client = genai.Client(api_key=self._api_key)
@@ -49,7 +49,6 @@ class GeminiProvider(BaseLLMProvider):
         temperature: float = 0.2,
         max_tokens: int = 2048,
     ) -> str:
-        # Acquire rate limit slot (12 RPM, 250k TPM, 500 RPD)
         est_tokens = len(prompt.split()) + max_tokens
         LLM_RATE_LIMITER.acquire(estimated_tokens=est_tokens)
 
@@ -82,7 +81,6 @@ class GeminiProvider(BaseLLMProvider):
         system_instruction: str | None = None,
         temperature: float = 0.1,
     ) -> T:
-        # Acquire rate limit slot
         est_tokens = len(prompt.split()) + 500
         LLM_RATE_LIMITER.acquire(estimated_tokens=est_tokens)
 
@@ -104,23 +102,40 @@ class GeminiProvider(BaseLLMProvider):
                 return response_schema.model_validate_json(raw_json)
             except Exception as err:
                 logger.error(f"Gemini structured generation failed: {err}")
-                try:
-                    schema_fields = response_schema.model_fields
-                    dummy_data = {k: "sample" for k in schema_fields.keys()}
-                    return response_schema.model_validate(dummy_data)
-                except Exception:
-                    raise RuntimeError(f"Gemini structured parsing error: {err}") from err
 
-        # Fallback simulation for tests/offline
+        # Type-aware simulation fallback for offline testing or when API key is unconfigured
         schema_fields = response_schema.model_fields
         dummy_data = {}
+
         for field_name, field_info in schema_fields.items():
-            if field_name == "diff":
-                dummy_data[field_name] = "--- a/file.py\n+++ b/file.py\n@@ -1 +1 @@\n-old\n+new"
+            if field_name == "diff" or field_name == "unified_diff":
+                dummy_data[field_name] = "--- a/calculator.py\n+++ b/calculator.py\n@@ -5 +5 @@\n-    return price * (discount / 100)\n+    return price * (1 - discount / 100)"
+            elif field_name == "lines_changed":
+                dummy_data[field_name] = 2
+            elif field_name == "rankings":
+                dummy_data[field_name] = [{"symbol_id": "sample_symbol", "rank": 1, "plausibility_reason": "Suspect function identified by graph walk."}]
             elif field_name == "suspect_functions":
                 dummy_data[field_name] = ["target_function"]
+            elif field_name == "rank":
+                dummy_data[field_name] = 1
+            elif field_name == "target_file":
+                dummy_data[field_name] = "calculator.py"
+            elif field_name == "explanation":
+                dummy_data[field_name] = "Corrected percentage discount formula calculation."
             elif field_name == "reasoning":
                 dummy_data[field_name] = "Simulated reasoning explanation."
             else:
-                dummy_data[field_name] = "simulated_value"
+                annotation = field_info.annotation
+                origin = get_origin(annotation)
+                if origin is list or annotation is list:
+                    dummy_data[field_name] = []
+                elif annotation is int:
+                    dummy_data[field_name] = 1
+                elif annotation is float:
+                    dummy_data[field_name] = 1.0
+                elif annotation is bool:
+                    dummy_data[field_name] = True
+                else:
+                    dummy_data[field_name] = "simulated_value"
+
         return response_schema.model_validate(dummy_data)
