@@ -4,6 +4,9 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from fixate.api.routes import router as api_router
+from fixate.api.websocket import router as stream_router
+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -20,6 +23,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(api_router)
+app.include_router(stream_router)
 
 
 @app.get("/health")
