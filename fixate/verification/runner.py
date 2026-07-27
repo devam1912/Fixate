@@ -34,8 +34,8 @@ class TargetedTestRunner:
         """Determine minimal subset of affected test files/functions using graph traversal."""
         affected_tests: List[str] = []
 
-        # Always include the failing test
-        if failing_test_name:
+        # Always include the failing test if available
+        if failing_test_name and "test" in failing_test_name.lower():
             affected_tests.append(failing_test_name)
 
         # Query dependency graph for tests exercising patched file symbols
@@ -44,7 +44,7 @@ class TargetedTestRunner:
             if patched_file in sym.file_path and not sym.is_test:
                 tests = traversal.get_tests_for_symbol(sym_id)
                 for t in tests:
-                    if t.name not in affected_tests:
+                    if t.name not in affected_tests and "test" in t.name.lower():
                         affected_tests.append(t.name)
 
         logger.info(f"Selected {len(affected_tests)} targeted tests for verification: {affected_tests}")
@@ -68,19 +68,22 @@ class TargetedTestRunner:
         Returns:
             SandboxRunResult with test execution pass/fail status and output logs.
         """
-        # Build targeted pytest command
-        if affected_tests:
-            # Construct pytest keyword expression e.g. pytest -k "test_tax or test_order"
-            k_expr = " or ".join(affected_tests)
-            cmd = f"python -m pytest -k \"{k_expr}\""
+        # Filter for actual test function/class names containing 'test'
+        valid_tests = [t for t in affected_tests if "test" in t.lower()]
+
+        if valid_tests:
+            k_expr = " or ".join(valid_tests)
+            cmd = f'python -m pytest -k "{k_expr}"'
+        elif failing_test and "test" in failing_test.lower():
+            cmd = f'python -m pytest {failing_test}'
         else:
-            cmd = f"python -m pytest {failing_test}"
+            cmd = "python -m pytest"
 
         logger.info(f"Executing targeted verification command: {cmd}")
         result = self.sandbox.run_tests_in_sandbox(workspace_dir, test_command=cmd)
 
         # Optional full suite confirmation pass if targeted run passed
-        if result.passed and run_full_suite_confirm:
+        if result.passed and run_full_suite_confirm and valid_tests:
             logger.info("Targeted tests passed! Running final full-suite confirmation pass...")
             full_cmd = "python -m pytest"
             full_result = self.sandbox.run_tests_in_sandbox(workspace_dir, test_command=full_cmd)

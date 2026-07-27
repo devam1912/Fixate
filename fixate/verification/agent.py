@@ -142,9 +142,19 @@ class VerificationAgent:
                     previous_error = err_msg
                     continue
 
+                # Locate target disk file cleanly inside tmp_checkout
                 target_disk_file = os.path.join(tmp_checkout, suspect.file_path)
+                if not os.path.exists(target_disk_file):
+                    base_name = os.path.basename(suspect.file_path)
+                    for root, dirs, files in os.walk(tmp_checkout):
+                        if base_name in files:
+                            target_disk_file = os.path.join(root, base_name)
+                            break
+
                 if os.path.exists(target_disk_file):
                     self.applicator.apply_patch_to_file(target_disk_file, patch.unified_diff)
+                else:
+                    logger.warning(f"Target disk file not found for patch application: {suspect.file_path}")
 
                 run_res = self.runner.run_targeted_verification(
                     workspace_dir=tmp_checkout,
