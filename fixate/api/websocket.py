@@ -3,7 +3,7 @@
 import json
 import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from sse_starlette.sse import EventSourceResponse
+from fastapi.responses import StreamingResponse
 
 from fixate.telemetry.events import EventStreamDispatcher
 from fixate.telemetry.logger import AgentTelemetryEvent
@@ -20,18 +20,15 @@ async def sse_live_stream(incident_id: str):
     async def event_generator():
         try:
             while True:
-                # Check for new telemetry event
                 if not event_queue.empty():
                     evt: AgentTelemetryEvent = event_queue.get_nowait()
-                    yield {
-                        "event": "agent_event",
-                        "data": evt.model_dump_json(),
-                    }
+                    data = evt.model_dump_json()
+                    yield f"event: agent_event\ndata: {data}\n\n"
                 await asyncio.sleep(0.5)
         except asyncio.CancelledError:
             dispatcher.unsubscribe_incident(incident_id, event_queue)
 
-    return EventSourceResponse(event_generator())
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.websocket("/ws/{incident_id}")
