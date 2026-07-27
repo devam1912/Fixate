@@ -31,8 +31,10 @@ htmlcov/
 .nox/
 .tox/
 
-# Data & Vector Store
+# Data, Telemetry & Vector Store
 chroma_db/
+telemetry_logs/
+fix_history.json
 *.db
 *.sqlite3
 
