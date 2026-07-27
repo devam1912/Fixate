@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { BarChart3, CheckCircle, Clock, DollarSign, Target } from 'lucide-react';
+import { Target, CheckCircle2, Clock, DollarSign, Award, Zap } from 'lucide-react';
 import { EvalScorecard } from '../types';
 
 export const EvalCharts: React.FC = () => {
@@ -14,61 +14,98 @@ export const EvalCharts: React.FC = () => {
   }, []);
 
   if (!scorecard) {
-    return <div className="glass-panel p-8 text-center text-slate-500">Running benchmark scorecard evaluation...</div>;
+    return (
+      <div className="glass-card p-12 text-center text-zinc-500 rounded-3xl my-6">
+        <Zap className="w-8 h-8 mx-auto mb-3 text-amber-400 animate-bounce" />
+        Running Benchmark Scorecard Evaluation Suite...
+      </div>
+    );
   }
 
   const chartData = [
-    { name: 'Localization Acc', value: scorecard.localization_accuracy_pct, color: '#06b6d4' },
-    { name: 'First Pass Success', value: scorecard.first_attempt_success_pct, color: '#10b981' },
-    { name: 'Overall Fix Rate', value: scorecard.overall_fix_rate_pct, color: '#8b5cf6' },
+    { name: 'Localization Acc', value: scorecard.localization_accuracy_pct, fill: '#8b5cf6' },
+    { name: 'First Pass Success', value: scorecard.first_attempt_success_pct, fill: '#06b6d4' },
+    { name: 'Overall Fix Rate', value: scorecard.overall_fix_rate_pct, fill: '#10b981' },
   ];
 
   return (
     <div className="space-y-6 my-6">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="glass-panel p-5 rounded-2xl border border-slate-800">
-          <div className="flex items-center gap-2 text-slate-400 text-xs mb-2">
-            <Target className="w-4 h-4 text-cyan-400" /> Root Cause Localization
+      {/* 4 Stat Cards Header */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="glass-card p-5 rounded-3xl border border-white/[0.08] relative overflow-hidden">
+          <div className="flex items-center gap-2 text-zinc-400 text-xs font-mono mb-2">
+            <Target className="w-4 h-4 text-violet-400" /> Root Cause Localization
           </div>
-          <div className="text-2xl font-bold text-slate-100">{scorecard.localization_accuracy_pct}%</div>
-          <p className="text-[10px] text-slate-500 mt-1">AST backward walk accuracy</p>
+          <div className="text-3xl font-extrabold text-white tracking-tight">
+            {scorecard.localization_accuracy_pct}%
+          </div>
+          <div className="w-full bg-white/[0.06] rounded-full h-1.5 mt-3 overflow-hidden">
+            <div
+              className="bg-gradient-to-r from-violet-500 to-indigo-500 h-full rounded-full"
+              style={{ width: `${scorecard.localization_accuracy_pct}%` }}
+            />
+          </div>
         </div>
 
-        <div className="glass-panel p-5 rounded-2xl border border-slate-800">
-          <div className="flex items-center gap-2 text-slate-400 text-xs mb-2">
-            <CheckCircle className="w-4 h-4 text-emerald-400" /> Overall Fix Rate
+        <div className="glass-card p-5 rounded-3xl border border-white/[0.08] relative overflow-hidden">
+          <div className="flex items-center gap-2 text-zinc-400 text-xs font-mono mb-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" /> Overall Fix Pass Rate
           </div>
-          <div className="text-2xl font-bold text-slate-100">{scorecard.overall_fix_rate_pct}%</div>
-          <p className="text-[10px] text-slate-500 mt-1">Verified passing fixes</p>
+          <div className="text-3xl font-extrabold text-white tracking-tight">
+            {scorecard.overall_fix_rate_pct}%
+          </div>
+          <div className="w-full bg-white/[0.06] rounded-full h-1.5 mt-3 overflow-hidden">
+            <div
+              className="bg-gradient-to-r from-emerald-500 to-teal-400 h-full rounded-full"
+              style={{ width: `${scorecard.overall_fix_rate_pct}%` }}
+            />
+          </div>
         </div>
 
-        <div className="glass-panel p-5 rounded-2xl border border-slate-800">
-          <div className="flex items-center gap-2 text-slate-400 text-xs mb-2">
-            <Clock className="w-4 h-4 text-purple-400" /> Avg Attempts / Case
+        <div className="glass-card p-5 rounded-3xl border border-white/[0.08] relative overflow-hidden">
+          <div className="flex items-center gap-2 text-zinc-400 text-xs font-mono mb-2">
+            <Clock className="w-4 h-4 text-cyan-400" /> Avg Attempts / Case
           </div>
-          <div className="text-2xl font-bold text-slate-100">{scorecard.average_attempts_per_case}</div>
-          <p className="text-[10px] text-slate-500 mt-1">Bounded retry cap: 3</p>
+          <div className="text-3xl font-extrabold text-white tracking-tight">
+            {scorecard.average_attempts_per_case} <span className="text-xs text-zinc-500 font-normal">/ 3</span>
+          </div>
+          <p className="text-[10px] text-zinc-500 font-mono mt-3">Bounded Retry Cap: Max 3</p>
         </div>
 
-        <div className="glass-panel p-5 rounded-2xl border border-slate-800">
-          <div className="flex items-center gap-2 text-slate-400 text-xs mb-2">
-            <DollarSign className="w-4 h-4 text-amber-400" /> Token Cost / Run
+        <div className="glass-card p-5 rounded-3xl border border-white/[0.08] relative overflow-hidden">
+          <div className="flex items-center gap-2 text-zinc-400 text-xs font-mono mb-2">
+            <DollarSign className="w-4 h-4 text-amber-400" /> Total Token Cost
           </div>
-          <div className="text-2xl font-bold text-slate-100">${scorecard.total_token_cost_usd}</div>
-          <p className="text-[10px] text-slate-500 mt-1">Total benchmark cost</p>
+          <div className="text-3xl font-extrabold text-white tracking-tight">
+            ${scorecard.total_token_cost_usd}
+          </div>
+          <p className="text-[10px] text-zinc-500 font-mono mt-3">Gemini 2.5 Flash Free Tier Priority</p>
         </div>
       </div>
 
-      <div className="glass-panel p-6 rounded-2xl border border-slate-800">
-        <h3 className="text-sm font-semibold text-slate-200 mb-6">Benchmark Accuracy Metric Breakdown</h3>
-        <div className="h-64 w-full">
+      {/* Bar Chart Card */}
+      <div className="glass-card p-6 rounded-3xl border border-white/[0.08]">
+        <h3 className="text-xs font-mono font-bold text-violet-400 uppercase tracking-widest mb-6 flex items-center gap-2">
+          <Award className="w-4 h-4 text-cyan-400" />
+          Benchmark Scorecard Metric Distribution
+        </h3>
+
+        <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-              <XAxis dataKey="name" stroke="#64748b" fontSize={12} />
-              <YAxis stroke="#64748b" fontSize={12} domain={[0, 100]} />
-              <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px', fontSize: '12px' }} />
-              <Bar dataKey="value" fill="#06b6d4" radius={[6, 6, 0, 0]} />
+            <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.05)" />
+              <XAxis dataKey="name" stroke="#71717a" fontSize={12} tickLine={false} />
+              <YAxis stroke="#71717a" fontSize={12} domain={[0, 100]} tickLine={false} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#0c0d14',
+                  borderColor: 'rgba(255, 255, 255, 0.1)',
+                  borderRadius: '16px',
+                  fontSize: '12px',
+                  color: '#fff',
+                }}
+              />
+              <Bar dataKey="value" radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

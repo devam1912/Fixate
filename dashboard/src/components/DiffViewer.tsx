@@ -1,5 +1,5 @@
-import React from 'react';
-import { FileCode, Sparkles, CheckCircle, AlertTriangle } from 'lucide-react';
+import React, { useState } from 'react';
+import { FileCode, Sparkles, CheckCircle, AlertTriangle, Copy, Check } from 'lucide-react';
 import { GeneratedPatch, RiskAssessment } from '../types';
 
 interface DiffViewerProps {
@@ -8,69 +8,99 @@ interface DiffViewerProps {
 }
 
 export const DiffViewer: React.FC<DiffViewerProps> = ({ patch, risk }) => {
+  const [copied, setCopied] = useState(false);
+
   if (!patch) {
     return (
-      <div className="glass-panel p-8 rounded-2xl border border-slate-800 text-center text-slate-500">
-        <FileCode className="w-8 h-8 mx-auto mb-2 opacity-50" />
-        <p className="text-xs">No proposed diff patch generated yet.</p>
+      <div className="glass-card p-10 rounded-3xl border border-white/[0.08] text-center text-zinc-500 my-6">
+        <FileCode className="w-10 h-10 mx-auto mb-3 text-zinc-600 opacity-40" />
+        <h3 className="text-xs font-mono font-semibold uppercase text-zinc-400">No Patch Generated Yet</h3>
+        <p className="text-xs text-zinc-500 mt-1">Select a broken target codebase above and click 'Trigger Self-Healing Fix'.</p>
       </div>
     );
   }
 
   const diffLines = patch.unified_diff.split('\n');
 
+  const handleCopy = () => {
+    navigator.clipboard.writeText(patch.unified_diff);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
-    <div className="glass-panel rounded-2xl border border-slate-800 overflow-hidden my-6">
-      <div className="bg-slate-900/80 px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+    <div className="glass-card rounded-3xl border border-white/[0.08] overflow-hidden my-6 shadow-2xl">
+      {/* Diff Header Bar */}
+      <div className="bg-[#0f1017]/90 px-6 py-4 border-b border-white/[0.08] flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <FileCode className="w-4 h-4 text-cyan-400" />
-          <span className="font-mono text-xs font-semibold text-slate-200">{patch.target_file}</span>
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">
-            {patch.lines_changed} lines changed
-          </span>
-        </div>
-
-        {risk && (
-          <div className="flex items-center gap-2">
-            {risk.is_risky ? (
-              <span className="text-xs px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 flex items-center gap-1.5 font-medium">
-                <AlertTriangle className="w-3.5 h-3.5" /> High Risk — Requires Approval
-              </span>
-            ) : (
-              <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5 font-medium">
-                <CheckCircle className="w-3.5 h-3.5" /> Verified & Approved
-              </span>
-            )}
+          <div className="p-2 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-400">
+            <FileCode className="w-4 h-4" />
           </div>
-        )}
-      </div>
+          <div>
+            <h3 className="font-mono text-xs font-bold text-white tracking-wide">{patch.target_file}</h3>
+            <p className="text-[11px] text-zinc-400 font-mono">
+              <span className="text-emerald-400 font-semibold">+{patch.lines_changed} lines</span> changed via Unified Diff Machine Engine
+            </p>
+          </div>
+        </div>
 
-      <div className="p-4 bg-slate-950/60 text-xs font-mono border-b border-slate-800 text-slate-300 flex items-start gap-2">
-        <Sparkles className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
-        <div>
-          <span className="font-semibold text-cyan-300">Patch Rationale:</span> {patch.explanation}
+        <div className="flex items-center gap-3">
+          {risk && (
+            <div>
+              {risk.is_risky ? (
+                <span className="text-xs px-3 py-1.5 rounded-xl bg-amber-500/10 text-amber-300 border border-amber-500/30 flex items-center gap-2 font-mono font-medium">
+                  <AlertTriangle className="w-3.5 h-3.5" /> High Risk — Approval Required
+                </span>
+              ) : (
+                <span className="text-xs px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 flex items-center gap-2 font-mono font-medium">
+                  <CheckCircle className="w-3.5 h-3.5" /> Verified & Pre-Approved
+                </span>
+              )}
+            </div>
+          )}
+
+          <button
+            onClick={handleCopy}
+            className="p-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-zinc-300 text-xs flex items-center gap-1.5 transition-all"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            <span className="font-mono text-[11px]">{copied ? 'Copied!' : 'Copy Diff'}</span>
+          </button>
         </div>
       </div>
 
-      <div className="p-4 bg-slate-950 font-mono text-xs overflow-x-auto max-h-[350px]">
+      {/* Rationale Explanation Callout */}
+      <div className="p-4 bg-[#14151f]/80 border-b border-white/[0.08] text-xs font-sans text-zinc-300 flex items-start gap-3">
+        <div className="p-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 shrink-0 mt-0.5">
+          <Sparkles className="w-3.5 h-3.5" />
+        </div>
+        <div>
+          <span className="font-semibold text-cyan-300 font-mono">LLM Patch Rationale:</span>{' '}
+          <span className="text-zinc-300">{patch.explanation}</span>
+        </div>
+      </div>
+
+      {/* Unified Diff Line View */}
+      <div className="p-4 bg-[#08080c] font-mono text-xs overflow-x-auto max-h-[420px] leading-relaxed">
         {diffLines.map((line, idx) => {
-          let lineStyle = 'text-slate-400';
+          let lineStyle = 'text-zinc-400';
           let bgStyle = '';
 
-          if (line.startswith('+') && !line.startswith('+++')) {
-            lineStyle = 'text-emerald-400 font-medium';
-            bgStyle = 'bg-emerald-950/30 border-l-2 border-emerald-500';
-          } else if (line.startswith('-') && !line.startswith('---')) {
-            lineStyle = 'text-rose-400 font-medium';
-            bgStyle = 'bg-rose-950/30 border-l-2 border-rose-500';
-          } else if (line.startswith('@@')) {
+          if (line.startsWith('+') && !line.startsWith('+++')) {
+            lineStyle = 'text-emerald-300 font-medium';
+            bgStyle = 'bg-emerald-950/25 border-l-2 border-emerald-500';
+          } else if (line.startsWith('-') && !line.startsWith('---')) {
+            lineStyle = 'text-rose-300 font-medium';
+            bgStyle = 'bg-rose-950/25 border-l-2 border-rose-500';
+          } else if (line.startsWith('@@')) {
             lineStyle = 'text-cyan-400 font-semibold';
-            bgStyle = 'bg-cyan-950/20';
+            bgStyle = 'bg-cyan-950/30 py-1';
           }
 
           return (
-            <div key={idx} className={`px-3 py-0.5 leading-relaxed ${lineStyle} ${bgStyle}`}>
-              {line}
+            <div key={idx} className={`px-4 py-0.5 rounded-sm flex items-center gap-4 ${lineStyle} ${bgStyle}`}>
+              <span className="text-[10px] text-zinc-600 select-none w-8 text-right font-mono">{idx + 1}</span>
+              <span className="whitespace-pre">{line}</span>
             </div>
           );
         })}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, GitBranch, BarChart3, ShieldCheck, Terminal } from 'lucide-react';
+import { Activity, GitBranch, BarChart3, Terminal, Zap, Shield, Command } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: 'live' | 'history' | 'graph' | 'eval';
@@ -8,62 +8,91 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
   return (
-    <header className="border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50">
+    <header className="border-b border-white/[0.08] bg-[#09090d]/80 backdrop-blur-xl sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold text-lg">
-            F
-          </div>
-          <div>
-            <h1 className="font-semibold text-slate-100 tracking-tight text-base flex items-center gap-2">
-              Fixate <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-mono">v0.1.0 SRE</span>
-            </h1>
-            <p className="text-xs text-slate-400">Self-Healing CI & Codebase Agent</p>
+        {/* Brand Logo & System Status */}
+        <div className="flex items-center gap-4">
+          <div className="relative group flex items-center gap-3 cursor-pointer">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-violet-600 via-cyan-500 to-emerald-400 p-[1px] shadow-lg shadow-violet-500/20">
+              <div className="w-full h-full bg-[#0b0c10] rounded-[11px] flex items-center justify-center">
+                <Zap className="w-4 h-4 text-cyan-400 fill-cyan-400/20" />
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-extrabold text-white tracking-tight text-base font-sans">
+                  FIXATE
+                </span>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 font-semibold tracking-wider">
+                  SYSTEM ACTIVE
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-400 font-mono flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                Autonomous Self-Healing CI Engine
+              </p>
+            </div>
           </div>
         </div>
 
-        <nav className="flex items-center gap-1 bg-slate-900/60 p-1 rounded-xl border border-slate-800">
+        {/* Floating Navigation Tabs */}
+        <nav className="flex items-center gap-1 bg-[#121319]/90 p-1.5 rounded-2xl border border-white/[0.08] shadow-inner">
           <button
             onClick={() => setActiveTab('live')}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-200 ${
               activeTab === 'live'
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-gradient-to-r from-violet-600/30 to-cyan-500/30 text-white border border-white/20 shadow-lg shadow-violet-500/10'
+                : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
             }`}
           >
-            <Activity className="w-3.5 h-3.5" /> Live Incident
+            <Activity className="w-3.5 h-3.5 text-cyan-400" />
+            Live Pipeline
           </button>
+
           <button
             onClick={() => setActiveTab('graph')}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-200 ${
               activeTab === 'graph'
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-gradient-to-r from-violet-600/30 to-cyan-500/30 text-white border border-white/20 shadow-lg shadow-violet-500/10'
+                : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
             }`}
           >
-            <GitBranch className="w-3.5 h-3.5" /> AST Code Graph
+            <GitBranch className="w-3.5 h-3.5 text-violet-400" />
+            AST Graph
           </button>
+
           <button
             onClick={() => setActiveTab('history')}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-200 ${
               activeTab === 'history'
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-gradient-to-r from-violet-600/30 to-cyan-500/30 text-white border border-white/20 shadow-lg shadow-violet-500/10'
+                : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
             }`}
           >
-            <Terminal className="w-3.5 h-3.5" /> Incident Log
+            <Terminal className="w-3.5 h-3.5 text-emerald-400" />
+            Audit Logs
           </button>
+
           <button
             onClick={() => setActiveTab('eval')}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-200 ${
               activeTab === 'eval'
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                ? 'bg-gradient-to-r from-violet-600/30 to-cyan-500/30 text-white border border-white/20 shadow-lg shadow-violet-500/10'
+                : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'
             }`}
           >
-            <BarChart3 className="w-3.5 h-3.5" /> Eval Harness
+            <BarChart3 className="w-3.5 h-3.5 text-amber-400" />
+            Eval Scorecard
           </button>
         </nav>
+
+        {/* Right Status Badge */}
+        <div className="hidden sm:flex items-center gap-3">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.08] text-xs text-zinc-400 font-mono">
+            <Shield className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="text-zinc-300 font-medium">Sandbox Docker Isolation</span>
+          </div>
+        </div>
       </div>
     </header>
   );

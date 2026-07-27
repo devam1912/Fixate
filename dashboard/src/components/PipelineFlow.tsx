@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Database, Code, ShieldCheck, CheckCircle2, XCircle, Clock, AlertTriangle } from 'lucide-react';
+import { Search, Database, Code2, ShieldAlert, CheckCircle2, XCircle, Loader2, Play } from 'lucide-react';
 import { IncidentSummary } from '../types';
 
 interface PipelineFlowProps {
@@ -12,39 +12,49 @@ export const PipelineFlow: React.FC<PipelineFlowProps> = ({ summary }) => {
   const stages = [
     {
       id: 'LOCALIZING',
-      name: 'Failure Localization',
-      description: 'AST Graph Backward Walk & LLM Plausibility Ranker',
+      name: '01. Localization',
+      shortName: 'Localize',
+      description: 'AST Backward Walk & Candidate Ranker',
       icon: Search,
+      color: 'from-violet-500 to-indigo-500',
     },
     {
       id: 'RETRIEVING',
-      name: 'Code-RAG Retrieval',
-      description: 'ChromaDB AST Chunker & Past Fix History Lookup',
+      name: '02. Code-RAG',
+      shortName: 'Retrieve',
+      description: 'AST Vector Chunker & Fix History',
       icon: Database,
+      color: 'from-cyan-500 to-blue-500',
     },
     {
       id: 'PATCHING',
-      name: 'Patch Generation',
-      description: 'Minimal Machine-Applicable Unified Diff Engine',
-      icon: Code,
+      name: '03. Patch Gen',
+      shortName: 'Patch',
+      description: 'Unified Machine Diff Applicator',
+      icon: Code2,
+      color: 'from-teal-500 to-emerald-500',
     },
     {
       id: 'VERIFYING',
-      name: 'Sandbox Verification',
-      description: `Docker Isolated Container Test Runner (Attempt ${summary?.total_attempts || 0}/3)`,
-      icon: Clock,
+      name: '04. Verification',
+      shortName: 'Verify',
+      description: `Docker Sandbox Execution (Attempt ${summary?.total_attempts || 0}/3)`,
+      icon: Loader2,
+      color: 'from-amber-500 to-orange-500',
     },
     {
       id: 'CHECKING_SAFETY',
-      name: 'Safety & Approval Gate',
-      description: 'Heuristic Risk Evaluator for Auth / Payment / Schema',
-      icon: ShieldCheck,
+      name: '05. Safety Gate',
+      shortName: 'Safety',
+      description: 'Auth / Payment / Schema Risk Audit',
+      icon: ShieldAlert,
+      color: 'from-rose-500 to-pink-500',
     },
   ];
 
   const getStageStatus = (stageId: string) => {
     if (!summary || summary.state === 'IDLE') return 'pending';
-    
+
     const stateOrder = ['LOCALIZING', 'RETRIEVING', 'PATCHING', 'VERIFYING', 'CHECKING_SAFETY'];
     const currentIdx = stateOrder.indexOf(currentState);
     const stageIdx = stateOrder.indexOf(stageId);
@@ -63,57 +73,97 @@ export const PipelineFlow: React.FC<PipelineFlowProps> = ({ summary }) => {
   };
 
   return (
-    <div className="glass-panel p-6 rounded-2xl border border-slate-800 my-6">
-      <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-6 flex items-center justify-between">
-        <span>Agent Execution Pipeline Flow</span>
-        {summary && (
-          <span className="font-mono text-xs text-slate-400 font-normal">
-            Incident ID: <span className="text-cyan-400">{summary.incident_id}</span>
-          </span>
-        )}
-      </h2>
+    <div className="glass-card p-6 rounded-3xl border border-white/[0.08] relative overflow-hidden my-6">
+      {/* Top Header info */}
+      <div className="flex items-center justify-between pb-6 mb-6 border-b border-white/[0.08]">
+        <div>
+          <h2 className="text-xs font-mono font-semibold uppercase tracking-widest text-violet-400 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-violet-400 animate-ping" />
+            Live Agentic Orchestration Pipeline
+          </h2>
+          <p className="text-xs text-zinc-400 mt-1 font-sans">
+            5-Stage Autonomous Root-Cause Localization & Sandboxed Patch Repair Loop
+          </p>
+        </div>
 
+        {summary && (
+          <div className="flex items-center gap-3 font-mono text-xs">
+            <span className="px-3 py-1 rounded-xl bg-white/[0.04] border border-white/[0.08] text-zinc-300">
+              ID: <span className="text-cyan-400 font-bold">{summary.incident_id}</span>
+            </span>
+            <span className="px-3 py-1 rounded-xl bg-violet-500/10 border border-violet-500/20 text-violet-300 font-semibold">
+              State: {summary.state}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* 5-Stage Visual Node Flow */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4 relative">
         {stages.map((stage, idx) => {
           const status = getStageStatus(stage.id);
           const Icon = stage.icon;
 
-          let badgeColor = 'bg-slate-900 border-slate-800 text-slate-500';
-          let iconColor = 'text-slate-500';
+          let cardStyle = 'bg-zinc-900/40 border-white/[0.06] text-zinc-500';
+          let iconStyle = 'text-zinc-600 bg-white/[0.02] border-white/[0.05]';
+          let titleStyle = 'text-zinc-400';
 
           if (status === 'completed') {
-            badgeColor = 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300';
-            iconColor = 'text-emerald-400';
+            cardStyle = 'bg-emerald-950/20 border-emerald-500/30 text-emerald-300 shadow-lg shadow-emerald-500/5';
+            iconStyle = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+            titleStyle = 'text-emerald-200 font-bold';
           } else if (status === 'active') {
-            badgeColor = 'bg-cyan-950/60 border-cyan-500/50 text-cyan-300 shadow-lg shadow-cyan-500/10 animate-pulse';
-            iconColor = 'text-cyan-400';
+            cardStyle = 'bg-cyan-950/40 border-cyan-500/50 text-cyan-200 glass-card-glow animate-neon-pulse';
+            iconStyle = 'text-cyan-300 bg-cyan-500/20 border-cyan-500/40 animate-spin';
+            titleStyle = 'text-white font-bold';
           } else if (status === 'failed') {
-            badgeColor = 'bg-rose-950/40 border-rose-500/30 text-rose-300';
-            iconColor = 'text-rose-400';
+            cardStyle = 'bg-rose-950/30 border-rose-500/40 text-rose-300';
+            iconStyle = 'text-rose-400 bg-rose-500/10 border-rose-500/20';
+            titleStyle = 'text-rose-200 font-bold';
           }
 
           return (
             <div
               key={stage.id}
-              className={`p-4 rounded-xl border ${badgeColor} transition-all duration-300 flex flex-col justify-between`}
+              className={`p-4 rounded-2xl border transition-all duration-300 relative flex flex-col justify-between ${cardStyle}`}
             >
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <div className={`p-2 rounded-lg bg-slate-950/50 border border-slate-800 ${iconColor}`}>
+                  <div className={`p-2.5 rounded-xl border ${iconStyle}`}>
                     <Icon className="w-4 h-4" />
                   </div>
-                  <span className="font-mono text-[10px] font-bold text-slate-500">0{idx + 1}</span>
+                  <span className="text-[10px] font-mono font-bold text-zinc-500">
+                    STEP 0{idx + 1}
+                  </span>
                 </div>
-                <h3 className="text-xs font-semibold text-slate-200 mb-1">{stage.name}</h3>
-                <p className="text-[11px] text-slate-400 leading-tight">{stage.description}</p>
+
+                <h3 className={`text-xs font-sans tracking-tight mb-1 ${titleStyle}`}>
+                  {stage.name}
+                </h3>
+                <p className="text-[11px] text-zinc-400 font-sans leading-snug">
+                  {stage.description}
+                </p>
               </div>
 
-              <div className="mt-4 pt-3 border-t border-slate-800/50 flex items-center justify-between">
-                <span className="text-[10px] uppercase font-mono font-medium">
-                  {status === 'completed' && <span className="text-emerald-400 flex items-center gap-1"><CheckCircle2 className="w-3 h-3"/> Done</span>}
-                  {status === 'active' && <span className="text-cyan-400 flex items-center gap-1"><Clock className="w-3 h-3 animate-spin"/> Executing</span>}
-                  {status === 'failed' && <span className="text-rose-400 flex items-center gap-1"><XCircle className="w-3 h-3"/> Failed</span>}
-                  {status === 'pending' && <span className="text-slate-500">Waiting</span>}
+              {/* Bottom Status pill */}
+              <div className="mt-5 pt-3 border-t border-white/[0.06] flex items-center justify-between">
+                <span className="text-[10px] font-mono uppercase font-semibold">
+                  {status === 'completed' && (
+                    <span className="text-emerald-400 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Passed
+                    </span>
+                  )}
+                  {status === 'active' && (
+                    <span className="text-cyan-300 flex items-center gap-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Running...
+                    </span>
+                  )}
+                  {status === 'failed' && (
+                    <span className="text-rose-400 flex items-center gap-1.5">
+                      <XCircle className="w-3.5 h-3.5" /> Failed
+                    </span>
+                  )}
+                  {status === 'pending' && <span className="text-zinc-600">Pending</span>}
                 </span>
               </div>
             </div>

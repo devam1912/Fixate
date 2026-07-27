@@ -1,5 +1,5 @@
 export interface TelemetryEvent {
-  event_id: str;
+  event_id: string;
   timestamp: string;
   incident_id: string;
   agent: string;
@@ -61,8 +61,8 @@ export interface EvalCaseResult {
   case_id: string;
   bug_category: string;
   localization_correct: boolean;
-  first_attempt_passed: bool;
-  final_verified_passed: bool;
+  first_attempt_passed: boolean;
+  final_verified_passed: boolean;
   attempts_used: number;
   execution_time_seconds: number;
   estimated_token_cost: number;
