@@ -1,7 +1,9 @@
 """REST API routes for triggering self-healing incidents, inspecting codebase AST graphs, and running eval benchmarks."""
 
 import os
+import shutil
 import tempfile
+import subprocess
 import logging
 from typing import Optional
 from pydantic import BaseModel
@@ -28,9 +30,35 @@ SAMPLE_REPOS = {
 
 class IncidentTriggerRequest(BaseModel):
     repo_name: Optional[str] = "calculator_app"
-    repo_path: Optional[str] = None  # Arbitrary user local repository path
+    repo_url: Optional[str] = None   # GitHub Repository URL (e.g., https://github.com/owner/repo)
+    repo_path: Optional[str] = None  # Local directory path
     pytest_log: Optional[str] = None
     human_approval_required: bool = True
+
+
+def clone_github_repo(repo_url: str) -> str:
+    """Clone a GitHub repository URL into a temporary directory and return absolute path."""
+    temp_dir = tempfile.mkdtemp(prefix="fixate_github_repo_")
+    url = repo_url.strip()
+    if not url.startswith("http://") and not url.startswith("https://") and not url.startswith("git@"):
+        url = f"https://github.com/{url}"
+    if not url.endswith(".git"):
+        url = f"{url}.git"
+
+    logger.info(f"Cloning GitHub repository: {url} -> {temp_dir}")
+    try:
+        res = subprocess.run(
+            ["git", "clone", "--depth", "1", url, temp_dir],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if res.returncode != 0:
+            raise RuntimeError(f"Git clone failed: {res.stderr}")
+        return temp_dir
+    except Exception as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail=f"Could not clone GitHub repository '{url}': {exc}")
 
 
 @router.get("/sample-repos")
@@ -65,19 +93,26 @@ def get_sample_repos():
 
 
 @router.get("/graph")
-def get_codebase_graph(repo_name: Optional[str] = "calculator_app", repo_path: Optional[str] = None):
-    """Dynamically build and return the AST dependency graph for any local repository path or sample repo."""
+def get_codebase_graph(
+    repo_name: Optional[str] = "calculator_app",
+    repo_url: Optional[str] = None,
+    repo_path: Optional[str] = None,
+):
+    """Dynamically build and return the AST dependency graph for any GitHub repo URL, local path, or sample repo."""
     target_path = None
-    if repo_path and os.path.exists(repo_path):
+    cloned_dir = None
+
+    if repo_url and repo_url.strip():
+        cloned_dir = clone_github_repo(repo_url)
+        target_path = cloned_dir
+    elif repo_path and os.path.exists(repo_path):
         target_path = os.path.abspath(repo_path)
     elif repo_name in SAMPLE_REPOS:
         target_path = SAMPLE_REPOS[repo_name]
+    elif repo_name and os.path.exists(repo_name):
+        target_path = os.path.abspath(repo_name)
     else:
-        # Check if repo_name itself is a valid directory path
-        if repo_name and os.path.exists(repo_name):
-            target_path = os.path.abspath(repo_name)
-        else:
-            target_path = SAMPLE_REPOS["calculator_app"]
+        target_path = SAMPLE_REPOS["calculator_app"]
 
     try:
         builder = CodebaseGraphBuilder(target_path)
@@ -111,9 +146,11 @@ def get_codebase_graph(repo_name: Optional[str] = "calculator_app", repo_path: O
 
 @router.post("/incident/trigger")
 def trigger_incident(req: IncidentTriggerRequest):
-    """Trigger dynamic self-healing incident pipeline for ANY user codebase path or sample repo."""
+    """Trigger dynamic self-healing incident pipeline for ANY GitHub repository URL or codebase path."""
     target_path = None
-    if req.repo_path and os.path.exists(req.repo_path):
+    if req.repo_url and req.repo_url.strip():
+        target_path = clone_github_repo(req.repo_url)
+    elif req.repo_path and os.path.exists(req.repo_path):
         target_path = os.path.abspath(req.repo_path)
     elif req.repo_name in SAMPLE_REPOS:
         target_path = SAMPLE_REPOS[req.repo_name]
@@ -126,14 +163,13 @@ def trigger_incident(req: IncidentTriggerRequest):
 
     # If no explicit traceback log provided, auto-discover by running pytest on target_path
     if not pytest_log:
-        import subprocess
         try:
             res = subprocess.run(
                 ["python", "-m", "pytest"],
                 cwd=target_path,
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=45,
             )
             pytest_log = res.stdout + "\n" + res.stderr
         except Exception as exc:
