@@ -1,15 +1,35 @@
-"""ChromaDB vector store wrapper for indexing and retrieving code chunks."""
+"""ChromaDB vector store wrapper supporting Gemini Embedding 2 with rate limiting."""
 
 import os
 import logging
 from typing import List, Optional
 from fixate.rag.chunker import CodeChunk
+from fixate.llm.rate_limiter import EMBEDDING_RATE_LIMITER
 
 logger = logging.getLogger(__name__)
 
 
-class FastSimpleEmbeddingFunction:
-    """Lightweight deterministic embedding function to eliminate external ONNX model download delays."""
+class GeminiEmbeddingFunction:
+    """Gemini Embedding 2 model (text-embedding-004) embedding function with strict rate limiting.
+    
+    Rate limits enforced:
+    - Max 90 requests / minute (RPM)
+    - Max 90k tokens / minute (TPM)
+    - Max 950 requests / day (RPD)
+    """
+
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "text-embedding-004"):
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        self.model_name = os.getenv("GEMINI_EMBEDDING_MODEL") or model_name
+        self._client = None
+
+        if self.api_key:
+            try:
+                from google import genai
+                self._client = genai.Client(api_key=self.api_key)
+            except Exception as exc:
+                logger.warning(f"Google GenAI SDK unavailable for embeddings: {exc}")
+
     def __call__(self, input: List[str]) -> List[List[float]]:
         return self._embed(input)
 
@@ -22,17 +42,42 @@ class FastSimpleEmbeddingFunction:
         return self._embed(input)
 
     def _embed(self, input: List[str]) -> List[List[float]]:
-        embeddings = []
+        if not input:
+            return []
+
+        # Acquire rate limit slot (90 RPM, 90k TPM, 950 RPD)
+        est_tokens = sum(len(txt.split()) for txt in input)
+        EMBEDDING_RATE_LIMITER.acquire(estimated_tokens=est_tokens)
+
+        if self._client:
+            try:
+                embeddings = []
+                for text in input:
+                    res = self._client.models.embed_content(
+                        model=self.model_name,
+                        contents=text,
+                    )
+                    if hasattr(res, "embedding") and res.embedding:
+                        embeddings.append(res.embedding.values)
+                    elif hasattr(res, "embeddings") and res.embeddings:
+                        embeddings.append(res.embeddings[0].values)
+                if len(embeddings) == len(input):
+                    return embeddings
+            except Exception as err:
+                logger.warning(f"Gemini API embedding request failed: {err}. Using deterministic fast fallback.")
+
+        # Fallback hash-based 64-dim embedding
+        fallback_embeddings = []
         for text in input:
             vec = [0.0] * 64
             for idx, char in enumerate(text[:500]):
                 vec[ord(char) % 64] += 1.0
             norm = sum(x * x for x in vec) ** 0.5 or 1.0
-            embeddings.append([x / norm for x in vec])
-        return embeddings
+            fallback_embeddings.append([x / norm for x in vec])
+        return fallback_embeddings
 
     def name(self) -> str:
-        return "fast_simple_embedding"
+        return f"gemini_embedding_{self.model_name}"
 
 
 class CodeVectorStore:
@@ -43,19 +88,19 @@ class CodeVectorStore:
         self.persist_dir = persist_dir or os.path.join(os.getcwd(), "chroma_db")
         self._client = None
         self._collection = None
-        self._memory_chunks: List[CodeChunk] = []  # Fallback in-memory store
+        self._memory_chunks: List[CodeChunk] = []
 
         try:
             import chromadb
             self._client = chromadb.PersistentClient(path=self.persist_dir)
-            embedding_func = FastSimpleEmbeddingFunction()
+            embedding_func = GeminiEmbeddingFunction()
             self._collection = self._client.get_or_create_collection(
                 name=self.collection_name,
                 embedding_function=embedding_func,
             )
-            logger.info(f"Initialized ChromaDB persistent vector store at {self.persist_dir}")
+            logger.info(f"Initialized ChromaDB vector store with Gemini Embedding 2 model")
         except Exception as exc:
-            logger.warning(f"Could not initialize ChromaDB vector store: {exc}. Using in-memory fallback store.")
+            logger.warning(f"Could not initialize ChromaDB vector store: {exc}. Using memory store.")
 
     def index_chunks(self, chunks: List[CodeChunk]):
         """Index a list of CodeChunk objects into the vector database."""

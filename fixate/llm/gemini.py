@@ -1,4 +1,4 @@
-"""Google Gemini LLM provider implementation (Free tier priority)."""
+"""Google Gemini LLM provider implementation with Gemini 2.5 Flash Lite & Rate Limiting."""
 
 import os
 import json
@@ -7,19 +7,30 @@ from typing import Type, TypeVar
 from pydantic import BaseModel
 
 from fixate.llm.base import BaseLLMProvider
+from fixate.llm.rate_limiter import LLM_RATE_LIMITER
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
 class GeminiProvider(BaseLLMProvider):
-    """Google Gemini API Provider, optimized for Gemini 2.5 Flash free-tier usage."""
+    """Google Gemini API Provider, configured for Gemini 2.5 Flash / Flash Lite with strict rate limiting.
+    
+    Rate limits enforced:
+    - Max 12 requests / minute (RPM)
+    - Max 250k tokens / minute (TPM)
+    - Max 500 requests / day (RPD)
+    """
 
-    def __init__(self, api_key: str | None = None, model_name: str = "gemini-2.5-flash"):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model_name: str = "gemini-2.5-flash",
+    ):
         self._api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-        self._model_name = model_name
+        self._model_name = os.getenv("GEMINI_LLM_MODEL") or model_name
         self._client = None
-        
+
         if self._api_key:
             try:
                 from google import genai
@@ -38,6 +49,10 @@ class GeminiProvider(BaseLLMProvider):
         temperature: float = 0.2,
         max_tokens: int = 2048,
     ) -> str:
+        # Acquire rate limit slot (12 RPM, 250k TPM, 500 RPD)
+        est_tokens = len(prompt.split()) + max_tokens
+        LLM_RATE_LIMITER.acquire(estimated_tokens=est_tokens)
+
         if self._client:
             try:
                 from google.genai import types
@@ -67,6 +82,10 @@ class GeminiProvider(BaseLLMProvider):
         system_instruction: str | None = None,
         temperature: float = 0.1,
     ) -> T:
+        # Acquire rate limit slot
+        est_tokens = len(prompt.split()) + 500
+        LLM_RATE_LIMITER.acquire(estimated_tokens=est_tokens)
+
         if self._client:
             try:
                 from google.genai import types
@@ -85,7 +104,6 @@ class GeminiProvider(BaseLLMProvider):
                 return response_schema.model_validate_json(raw_json)
             except Exception as err:
                 logger.error(f"Gemini structured generation failed: {err}")
-                # Fallback json attempt if structured validation failed
                 try:
                     schema_fields = response_schema.model_fields
                     dummy_data = {k: "sample" for k in schema_fields.keys()}
