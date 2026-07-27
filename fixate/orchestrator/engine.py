@@ -65,16 +65,7 @@ class OrchestrationEngine:
         pytest_log: str,
         human_approval_required: bool = True,
     ) -> OrchestrationSummary:
-        """Execute the end-to-end self-healing CI pipeline.
-        
-        Args:
-            repo_dir: Absolute path to target codebase repository.
-            pytest_log: Raw pytest failure output log.
-            human_approval_required: If True, halts high-risk patches for explicit human gate sign-off.
-            
-        Returns:
-            OrchestrationSummary object containing complete incident audit trail and outcome.
-        """
+        """Execute the end-to-end self-healing CI pipeline."""
         incident_id = f"inc_{uuid.uuid4().hex[:8]}"
         logger.info(f"=== Starting Incident Self-Healing Pipeline: {incident_id} ===")
 
@@ -109,6 +100,7 @@ class OrchestrationEngine:
                 failing_test=loc_res.failing_test,
                 exception_type=loc_res.exception_type,
                 failure_report="Localization failed: No candidate root cause functions identified via graph.",
+                telemetry_events=self.telemetry.get_incident_events(incident_id),
             )
 
         top_suspect: SuspectFunction = loc_res.suspect_functions[0]
