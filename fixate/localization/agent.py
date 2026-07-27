@@ -70,18 +70,28 @@ class FailureLocalizationAgent:
             # Backward walk to find functions called by or calling the failure point
             candidates = self.traversal.backward_trace(start_symbol.id, max_depth=3)
 
-        # Fallback: if graph traversal yields no non-test functions, search stack frames
+        # Fallback 1: search stack frames
         if not candidates and failure.stack_frames:
             for frame in failure.stack_frames:
                 sym = self.traversal.find_symbol_by_file_line(frame.file_path, frame.line_number)
                 if sym and not sym.is_test and sym not in candidates:
                     candidates.append(sym)
 
-        # Fallback 2: if graph still empty, collect all non-test code symbols in the failing file
+        # Fallback 2: collect all non-test code symbols in matching file
+        if not candidates and failure.failing_file:
+            for sym_id, sym in self.builder.symbols.items():
+                if not sym.is_test and (failure.failing_file in sym.file_path or sym.file_path.endswith(failure.failing_file)):
+                    candidates.append(sym)
+
+        # Fallback 3: collect all non-test application symbols across entire codebase graph
         if not candidates:
             for sym_id, sym in self.builder.symbols.items():
-                if not sym.is_test and failure.failing_file in sym.file_path:
+                if not sym.is_test and sym not in candidates:
                     candidates.append(sym)
+
+        # Final Fallback 4: if codebase only has test symbols, include all symbols
+        if not candidates:
+            candidates = list(self.builder.symbols.values())
 
         return candidates
 
@@ -168,14 +178,7 @@ class FailureLocalizationAgent:
         return fallback_suspects
 
     def localize_failure(self, log_output: str) -> LocalizationResult:
-        """Main end-to-end entry point for failure localization.
-        
-        Args:
-            log_output: Raw string output from pytest or exception traceback.
-            
-        Returns:
-            LocalizationResult with ranked suspect functions and failure details.
-        """
+        """Main end-to-end entry point for failure localization."""
         # 1. Parse raw log
         failure = self.parser.parse_log(log_output)
         logger.info(f"Parsed failure: {failure.failing_file}:{failure.failing_line} ({failure.exception_type})")

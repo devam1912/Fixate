@@ -100,11 +100,9 @@ def get_codebase_graph(
 ):
     """Dynamically build and return the AST dependency graph for any GitHub repo URL, local path, or sample repo."""
     target_path = None
-    cloned_dir = None
 
     if repo_url and repo_url.strip():
-        cloned_dir = clone_github_repo(repo_url)
-        target_path = cloned_dir
+        target_path = clone_github_repo(repo_url)
     elif repo_path and os.path.exists(repo_path):
         target_path = os.path.abspath(repo_path)
     elif repo_name in SAMPLE_REPOS:
@@ -115,8 +113,8 @@ def get_codebase_graph(
         target_path = SAMPLE_REPOS["calculator_app"]
 
     try:
-        builder = CodebaseGraphBuilder(target_path)
-        graph = builder.build_graph()
+        builder = CodebaseGraphBuilder()
+        graph = builder.build_from_directory(target_path)
 
         nodes = []
         for node_id, data in graph.nodes(data=True):
@@ -177,7 +175,7 @@ def trigger_incident(req: IncidentTriggerRequest):
             pytest_log = f"Pytest execution on {target_path}:\nAssertionError: Failure detected in test suite."
 
     summary = ENGINE.run_self_healing_pipeline(
-        repo_path=target_path,
+        repo_dir=target_path,
         pytest_log=pytest_log,
         human_approval_required=req.human_approval_required,
     )
