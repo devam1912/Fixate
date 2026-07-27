@@ -1,42 +1,57 @@
 import React, { useEffect, useState } from 'react';
-import { GitBranch, Box, FileText, Code2, Layers, Search } from 'lucide-react';
+import { GitBranch, Box, Layers, Search, FolderCog } from 'lucide-react';
 import { CodeGraphData, CodeGraphNode } from '../types';
 
 interface GraphViewerProps {
   repoName: string;
+  customRepoPath?: string;
 }
 
-export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName }) => {
+export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName, customRepoPath }) => {
   const [graphData, setGraphData] = useState<CodeGraphData | null>(null);
   const [selectedNode, setSelectedNode] = useState<CodeGraphNode | null>(null);
   const [filterType, setFilterType] = useState<'all' | 'functions' | 'tests'>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    fetch(`/api/graph?repo_name=${repoName}`)
+    setIsLoading(true);
+    const query = customRepoPath
+      ? `repo_path=${encodeURIComponent(customRepoPath)}`
+      : `repo_name=${encodeURIComponent(repoName)}`;
+
+    fetch(`/api/graph?${query}`)
       .then((res) => res.json())
       .then((data) => {
         setGraphData(data);
         if (data.nodes && data.nodes.length > 0) {
           setSelectedNode(data.nodes[0]);
         }
+        setIsLoading(false);
       })
-      .catch((err) => console.error('Error fetching graph:', err));
-  }, [repoName]);
+      .catch((err) => {
+        console.error('Error fetching graph:', err);
+        setIsLoading(false);
+      });
+  }, [repoName, customRepoPath]);
 
-  if (!graphData) {
+  if (isLoading || !graphData) {
     return (
       <div className="glass-card p-12 text-center text-zinc-500 rounded-3xl my-6">
         <GitBranch className="w-8 h-8 mx-auto mb-3 text-violet-400 animate-spin" />
-        Loading AST Codebase Dependency Graph...
+        Constructing Dynamic AST Codebase Dependency Graph...
       </div>
     );
   }
 
-  const filteredNodes = graphData.nodes.filter((node) => {
+  const filteredNodes = (graphData.nodes || []).filter((node) => {
     if (filterType === 'functions' && node.is_test) return false;
     if (filterType === 'tests' && !node.is_test) return false;
-    if (searchTerm && !node.label.toLowerCase().includes(searchTerm.toLowerCase()) && !node.file_path.toLowerCase().includes(searchTerm.toLowerCase())) {
+    if (
+      searchTerm &&
+      !node.label.toLowerCase().includes(searchTerm.toLowerCase()) &&
+      !node.file_path.toLowerCase().includes(searchTerm.toLowerCase())
+    ) {
       return false;
     }
     return true;
@@ -50,10 +65,10 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName }) => {
           <div>
             <h2 className="text-xs font-mono font-bold uppercase tracking-wider text-violet-400 flex items-center gap-2">
               <GitBranch className="w-4 h-4 text-cyan-400" />
-              AST Symbol Graph ({graphData.nodes.length} Nodes, {graphData.edges.length} Call Edges)
+              AST Symbol Graph ({graphData.nodes?.length || 0} Nodes, {graphData.edges?.length || 0} Call Edges)
             </h2>
-            <p className="text-xs text-zinc-400 font-sans mt-0.5">
-              Codebase static dependency graph constructed via Python AST parser
+            <p className="text-xs text-zinc-400 font-sans mt-0.5 truncate max-w-md">
+              Target: <span className="text-cyan-300 font-mono font-semibold">{customRepoPath || repoName}</span>
             </p>
           </div>
 
@@ -66,7 +81,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName }) => {
                   : 'bg-white/[0.03] text-zinc-400 hover:text-white'
               }`}
             >
-              All ({graphData.nodes.length})
+              All ({graphData.nodes?.length || 0})
             </button>
             <button
               onClick={() => setFilterType('functions')}
@@ -104,30 +119,36 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName }) => {
         </div>
 
         {/* Symbols Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[460px] overflow-y-auto pr-2">
-          {filteredNodes.map((node) => {
-            const isSelected = selectedNode?.id === node.id;
-            return (
-              <button
-                key={node.id}
-                onClick={() => setSelectedNode(node)}
-                className={`p-3.5 rounded-2xl border text-left transition-all duration-200 ${
-                  isSelected
-                    ? 'bg-gradient-to-r from-violet-600/30 to-cyan-500/30 border-cyan-500/50 text-white shadow-lg shadow-cyan-500/10'
-                    : node.is_test
-                    ? 'bg-[#12101b]/60 border-purple-500/20 text-purple-300 hover:border-purple-500/40'
-                    : 'bg-zinc-900/40 border-white/[0.06] text-zinc-300 hover:border-white/20'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <Box className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                  <span className="font-mono font-semibold text-xs truncate">{node.label}</span>
-                </div>
-                <div className="text-[10px] text-zinc-500 font-mono truncate">{node.file_path}</div>
-              </button>
-            );
-          })}
-        </div>
+        {filteredNodes.length === 0 ? (
+          <div className="text-center text-zinc-500 py-10 text-xs font-mono">
+            No matching AST symbols found in codebase.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[460px] overflow-y-auto pr-2">
+            {filteredNodes.map((node) => {
+              const isSelected = selectedNode?.id === node.id;
+              return (
+                <button
+                  key={node.id}
+                  onClick={() => setSelectedNode(node)}
+                  className={`p-3.5 rounded-2xl border text-left transition-all duration-200 ${
+                    isSelected
+                      ? 'bg-gradient-to-r from-violet-600/30 to-cyan-500/30 border-cyan-500/50 text-white shadow-lg shadow-cyan-500/10'
+                      : node.is_test
+                      ? 'bg-[#12101b]/60 border-purple-500/20 text-purple-300 hover:border-purple-500/40'
+                      : 'bg-zinc-900/40 border-white/[0.06] text-zinc-300 hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <Box className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                    <span className="font-mono font-semibold text-xs truncate">{node.label}</span>
+                  </div>
+                  <div className="text-[10px] text-zinc-500 font-mono truncate">{node.file_path}</div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Right Col: AST Symbol Inspector */}
@@ -169,8 +190,9 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName }) => {
           )}
         </div>
 
-        <div className="pt-4 border-t border-white/[0.08] text-[11px] text-zinc-500 font-mono">
-          Language AST: Python 3.11 Parser
+        <div className="pt-4 border-t border-white/[0.08] text-[11px] text-zinc-500 font-mono flex items-center justify-between">
+          <span>Language AST: Python 3.11</span>
+          <FolderCog className="w-3.5 h-3.5 text-cyan-400" />
         </div>
       </div>
     </div>

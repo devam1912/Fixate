@@ -1,103 +1,159 @@
-"""REST API endpoints for incident triggering, codebase graph, and eval metrics."""
+"""REST API routes for triggering self-healing incidents, inspecting codebase AST graphs, and running eval benchmarks."""
 
 import os
-from typing import Optional, List, Dict
-from fastapi import APIRouter, HTTPException, BackgroundTasks
-from pydantic import BaseModel, Field
+import tempfile
+import logging
+from typing import Optional
+from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
 
-from fixate.orchestrator.engine import OrchestrationEngine, OrchestrationSummary
 from fixate.graph.builder import CodebaseGraphBuilder
 from fixate.eval.harness import EvalHarnessRunner
-from fixate.eval.cases import BENCHMARK_SUITE_15
-from fixate.telemetry.logger import TelemetryLogger
+from fixate.orchestrator.engine import OrchestrationEngine
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
-engine = OrchestrationEngine()
-telemetry = TelemetryLogger()
+
+# Singletons / Registries
+ENGINE = OrchestrationEngine()
+EVAL_RUNNER = EvalHarnessRunner()
+
+# Pre-packaged sample repo directory mapping
+SAMPLE_REPOS = {
+    "calculator_app": os.path.abspath(os.path.join("sample_repos", "calculator_app")),
+    "ecommerce_api": os.path.abspath(os.path.join("sample_repos", "ecommerce_api")),
+    "data_processor": os.path.abspath(os.path.join("sample_repos", "data_processor")),
+}
 
 
-class TriggerIncidentRequest(BaseModel):
-    repo_name: str = Field("calculator_app", description="Name of sample repo or target directory path")
-    pytest_log: Optional[str] = Field(None, description="Raw pytest log text. Defaults to sample failure.")
-    human_approval_required: bool = Field(True, description="Enable safety human approval gate for risky patches")
+class IncidentTriggerRequest(BaseModel):
+    repo_name: Optional[str] = "calculator_app"
+    repo_path: Optional[str] = None  # Arbitrary user local repository path
+    pytest_log: Optional[str] = None
+    human_approval_required: bool = True
 
 
-@router.post("/incident/trigger", response_model=OrchestrationSummary)
-def trigger_incident(req: TriggerIncidentRequest):
-    """Trigger an incident self-healing pipeline run."""
-    sample_dir = os.path.join(os.getcwd(), "sample_repos", req.repo_name)
-    target_dir = sample_dir if os.path.exists(sample_dir) else req.repo_name
+@router.get("/sample-repos")
+def get_sample_repos():
+    """List available sample repositories and metadata."""
+    return [
+        {
+            "id": "calculator_app",
+            "name": "calculator_app",
+            "path": SAMPLE_REPOS["calculator_app"],
+            "bug": "Discount Logic Formula Error",
+            "type": "Math / Logic",
+            "description": "Off-by-one percentage discount formula error in price engine.",
+        },
+        {
+            "id": "ecommerce_api",
+            "name": "ecommerce_api",
+            "path": SAMPLE_REPOS["ecommerce_api"],
+            "bug": "Dict KeyError & Attribute Exception",
+            "type": "API Schema",
+            "description": "Missing dictionary attribute validation in order creation endpoint.",
+        },
+        {
+            "id": "data_processor",
+            "name": "data_processor",
+            "path": SAMPLE_REPOS["data_processor"],
+            "bug": "Off-by-One Loop & Null Reference",
+            "type": "Pipeline Data",
+            "description": "Index boundary overshoot and unhandled None value in record transformer.",
+        },
+    ]
 
-    if not os.path.exists(target_dir):
-        raise HTTPException(status_code=404, detail=f"Target repository directory not found: {req.repo_name}")
 
-    default_logs = {
-        "calculator_app": "FAILED test_calculator.py::test_calculate_discount - AssertionError: assert 80.0 == 80.0",
-        "ecommerce_api": "FAILED test_order_service.py::test_calculate_order_total - AttributeError: 'dict' object has no attribute 'price'",
-        "data_processor": "FAILED test_pipeline.py::test_compute_average - AssertionError: assert 10.0 == 20.0",
-    }
+@router.get("/graph")
+def get_codebase_graph(repo_name: Optional[str] = "calculator_app", repo_path: Optional[str] = None):
+    """Dynamically build and return the AST dependency graph for any local repository path or sample repo."""
+    target_path = None
+    if repo_path and os.path.exists(repo_path):
+        target_path = os.path.abspath(repo_path)
+    elif repo_name in SAMPLE_REPOS:
+        target_path = SAMPLE_REPOS[repo_name]
+    else:
+        # Check if repo_name itself is a valid directory path
+        if repo_name and os.path.exists(repo_name):
+            target_path = os.path.abspath(repo_name)
+        else:
+            target_path = SAMPLE_REPOS["calculator_app"]
 
-    log_text = req.pytest_log or default_logs.get(req.repo_name, "FAILED test_app.py::test_fail - AssertionError")
+    try:
+        builder = CodebaseGraphBuilder(target_path)
+        graph = builder.build_graph()
 
-    summary = engine.run_self_healing_pipeline(
-        repo_dir=target_dir,
-        pytest_log=log_text,
+        nodes = []
+        for node_id, data in graph.nodes(data=True):
+            symbol = data.get("symbol")
+            if symbol:
+                nodes.append({
+                    "id": symbol.id,
+                    "label": symbol.name,
+                    "symbol_type": symbol.symbol_type.value,
+                    "file_path": symbol.file_path,
+                    "is_test": symbol.is_test,
+                })
+
+        edges = []
+        for u, v, data in graph.edges(data=True):
+            edges.append({
+                "source": u,
+                "target": v,
+                "relation": data.get("relation", "calls"),
+            })
+
+        return {"nodes": nodes, "edges": edges, "repo_path": target_path}
+    except Exception as err:
+        logger.error(f"Error constructing graph for {target_path}: {err}")
+        raise HTTPException(status_code=500, detail=f"Graph construction error: {err}")
+
+
+@router.post("/incident/trigger")
+def trigger_incident(req: IncidentTriggerRequest):
+    """Trigger dynamic self-healing incident pipeline for ANY user codebase path or sample repo."""
+    target_path = None
+    if req.repo_path and os.path.exists(req.repo_path):
+        target_path = os.path.abspath(req.repo_path)
+    elif req.repo_name in SAMPLE_REPOS:
+        target_path = SAMPLE_REPOS[req.repo_name]
+    elif req.repo_name and os.path.exists(req.repo_name):
+        target_path = os.path.abspath(req.repo_name)
+    else:
+        target_path = SAMPLE_REPOS["calculator_app"]
+
+    pytest_log = req.pytest_log
+
+    # If no explicit traceback log provided, auto-discover by running pytest on target_path
+    if not pytest_log:
+        import subprocess
+        try:
+            res = subprocess.run(
+                ["python", "-m", "pytest"],
+                cwd=target_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            pytest_log = res.stdout + "\n" + res.stderr
+        except Exception as exc:
+            logger.warning(f"Could not auto-run pytest on {target_path}: {exc}")
+            pytest_log = f"Pytest execution on {target_path}:\nAssertionError: Failure detected in test suite."
+
+    summary = ENGINE.run_self_healing_pipeline(
+        repo_path=target_path,
+        pytest_log=pytest_log,
         human_approval_required=req.human_approval_required,
     )
     return summary
 
 
-@router.get("/graph")
-def get_codebase_graph(repo_name: str = "calculator_app"):
-    """Get nodes and edges JSON for interactive graph visualization."""
-    sample_dir = os.path.join(os.getcwd(), "sample_repos", repo_name)
-    target_dir = sample_dir if os.path.exists(sample_dir) else os.getcwd()
-
-    builder = CodebaseGraphBuilder()
-    builder.build_from_directory(target_dir)
-
-    nodes = []
-    for node_id, data in builder.graph.nodes(data=True):
-        nodes.append({
-            "id": node_id,
-            "label": data.get("name", node_id),
-            "symbol_type": data.get("symbol_type", "function"),
-            "file_path": data.get("file_path", ""),
-            "is_test": data.get("is_test", False),
-        })
-
-    edges = []
-    for u, v, data in builder.graph.edges(data=True):
-        edges.append({
-            "source": u,
-            "target": v,
-            "relation": data.get("relation", "calls"),
-        })
-
-    return {"nodes": nodes, "edges": edges}
-
-
 @router.get("/eval")
-def run_eval_scorecard():
-    """Run benchmark evaluation suite and return scorecard metrics."""
-    runner = EvalHarnessRunner()
-    for case in BENCHMARK_SUITE_15:
-        runner.register_case(case)
-
-    scorecard = runner.run_benchmark_suite()
-    return scorecard.model_dump()
-
-
-@router.get("/sample-repos")
-def list_sample_repositories():
-    """List available target sample repositories."""
-    base_dir = os.path.join(os.getcwd(), "sample_repos")
-    if not os.path.exists(base_dir):
-        return []
-
-    repos = [
-        {"id": "calculator_app", "name": "Calculator App", "bug_type": "Math & Discount Logic Error"},
-        {"id": "ecommerce_api", "name": "Ecommerce API Service", "bug_type": "Dict Attribute & Validation Error"},
-        {"id": "data_processor", "name": "Data Pipeline Processor", "bug_type": "Off-by-One & Null Reference Error"},
-    ]
-    return repos
+def get_eval_scorecard():
+    """Run benchmark evaluation suite across sample repositories and return scorecard metrics."""
+    try:
+        scorecard = EVAL_RUNNER.run_benchmark_suite()
+        return scorecard.model_dump()
+    except Exception as exc:
+        logger.error(f"Error generating eval scorecard: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
