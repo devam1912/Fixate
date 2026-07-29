@@ -3,63 +3,124 @@ import { Navbar } from './components/Navbar';
 import { PipelineFlow } from './components/PipelineFlow';
 import { DiffViewer } from './components/DiffViewer';
 import { GraphViewer } from './components/GraphViewer';
-import { EvalCharts } from './components/EvalCharts';
 import { IncidentHistory } from './components/IncidentHistory';
-import { IncidentSummary, TelemetryEvent } from './types';
-import { Play, Sparkles, Code2, AlertTriangle, Github, Terminal, FolderCog } from 'lucide-react';
+import { EvalCharts } from './components/EvalCharts';
+import { IncidentSummary } from './types';
+import { Github, FolderCog, Sparkles, Play, Code2, AlertTriangle, KeyRound } from 'lucide-react';
 
-export const App: React.FC = () => {
+export function App() {
   const [activeTab, setActiveTab] = useState<'live' | 'history' | 'graph' | 'eval'>('live');
+  const [incidentSummary, setIncidentSummary] = useState<IncidentSummary | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [mode, setMode] = useState<'github' | 'sample' | 'local'>('github');
-  
-  // GitHub Repo State
+  const [selectedRepo, setSelectedRepo] = useState<string>('enterprise_app');
   const [githubUrl, setGithubUrl] = useState<string>('');
-  
-  // Sample Repos State
-  const [selectedRepo, setSelectedRepo] = useState<string>('calculator_app');
-
-  // Custom User Local Repo State
   const [customRepoPath, setCustomRepoPath] = useState<string>('');
   const [customPytestLog, setCustomPytestLog] = useState<string>('');
-
-  const [incidentSummary, setIncidentSummary] = useState<IncidentSummary | null>(null);
-  const [telemetryEvents, setTelemetryEvents] = useState<TelemetryEvent[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [customEnvText, setCustomEnvText] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [liveState, setLiveState] = useState<string | null>(null);
 
   const handleTriggerIncident = async () => {
     setIsLoading(true);
-    setTelemetryEvents([]);
+    setErrorMessage(null);
+    setIncidentSummary(null);
+    setLiveState(null);
+
     try {
       let payload: any = { human_approval_required: true };
 
       if (mode === 'github') {
         payload.repo_url = githubUrl.trim();
         payload.pytest_log = customPytestLog.trim() || undefined;
+        payload.env_text = customEnvText.trim() || undefined;
       } else if (mode === 'local') {
         payload.repo_path = customRepoPath.trim();
         payload.pytest_log = customPytestLog.trim() || undefined;
+        payload.env_text = customEnvText.trim() || undefined;
       } else {
         payload.repo_name = selectedRepo;
       }
 
-      const res = await fetch('/api/incident/trigger', {
+      // Start the run in the background so we get an id up front, then follow the
+      // telemetry stream. Without this the UI could only redraw once the whole
+      // pipeline had already finished.
+      const startRes = await fetch('/api/incident/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const data: IncidentSummary = await res.json();
-      setIncidentSummary(data);
-      if (data.telemetry_events) {
-        setTelemetryEvents(data.telemetry_events);
+
+      if (!startRes.ok) {
+        const errorData = await startRes.json().catch(() => ({ detail: 'Failed to start incident pipeline' }));
+        throw new Error(errorData.detail || `Server error: ${startRes.statusText}`);
       }
-    } catch (err) {
-      console.error('Error triggering incident:', err);
+
+      const { incident_id: incidentId } = await startRes.json();
+      const data = await followIncident(incidentId);
+      setIncidentSummary(data);
+    } catch (err: any) {
+      console.error('Trigger Incident failed:', err);
+      setErrorMessage(err.message || 'An unexpected error occurred while executing self-healing pipeline.');
     } finally {
       setIsLoading(false);
     }
   };
 
+  /** Follow an incident's telemetry stream, resolving with its terminal summary. */
+  const followIncident = (incidentId: string): Promise<IncidentSummary> =>
+    new Promise((resolve, reject) => {
+      const source = new EventSource(`/api/stream/sse/${incidentId}`);
+
+      const finish = async () => {
+        source.close();
+        try {
+          const res = await fetch(`/api/incident/${incidentId}`);
+          const body = await res.json();
+          if (body.status === 'completed') resolve(body.summary as IncidentSummary);
+          else reject(new Error(body.detail || 'The incident did not complete.'));
+        } catch (err: any) {
+          reject(err);
+        }
+      };
+
+      source.addEventListener('agent_event', (evt: MessageEvent) => {
+        try {
+          const event = JSON.parse(evt.data);
+          if (event.action === 'STATE_TRANSITION') setLiveState(event.output_summary);
+        } catch {
+          /* a malformed frame should not abort the run */
+        }
+      });
+
+      source.addEventListener('done', finish);
+
+      // If the stream drops, fall back to polling for the terminal summary rather
+      // than losing a run that is still progressing server-side.
+      source.onerror = () => {
+        source.close();
+        const poll = setInterval(async () => {
+          const res = await fetch(`/api/incident/${incidentId}`);
+          const body = await res.json();
+          if (body.status === 'completed') {
+            clearInterval(poll);
+            resolve(body.summary as IncidentSummary);
+          } else if (body.status === 'error') {
+            clearInterval(poll);
+            reject(new Error(body.detail));
+          }
+        }, 2000);
+      };
+    });
+
   const sampleRepos = [
+    {
+      id: 'enterprise_app',
+      title: 'enterprise_app (>1k LOC)',
+      bug: '5 Multi-Module Enterprise Defects',
+      type: 'Multi-Service Enterprise',
+      description: 'Complex enterprise codebase with 5 distinct auth, billing, inventory, analytics & notification bugs.',
+    },
     {
       id: 'calculator_app',
       title: 'calculator_app',
@@ -88,6 +149,23 @@ export const App: React.FC = () => {
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
+        {/* Error Alert Banner */}
+        {errorMessage && (
+          <div className="mb-6 p-4 rounded-xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs font-mono flex items-start gap-3 shadow-lg animate-in fade-in slide-in-from-top-2">
+            <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <span className="font-bold uppercase tracking-wider block mb-1">Execution Warning:</span>
+              <p className="leading-relaxed">{errorMessage}</p>
+            </div>
+            <button
+              onClick={() => setErrorMessage(null)}
+              className="text-rose-400 hover:text-rose-100 font-bold px-2 py-0.5 rounded hover:bg-rose-900/50 transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Dynamic Input Control Card */}
         <div className="glass-card p-6 rounded-2xl border border-zinc-800 mb-8">
           <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 pb-5 border-b border-zinc-800">
@@ -100,7 +178,7 @@ export const App: React.FC = () => {
                   Repository Self-Healing Trigger
                 </h2>
                 <p className="text-xs text-zinc-500 mt-0.5 font-mono">
-                  Clone any GitHub repository URL, specify local folder path, or use built-in benchmarks
+                  Clone any Python GitHub repository URL, specify local folder path, or use built-in benchmarks
                 </p>
               </div>
             </div>
@@ -137,12 +215,12 @@ export const App: React.FC = () => {
                 }`}
               >
                 <FolderCog className="w-3.5 h-3.5" />
-                Local Path
+                Local Folder Path
               </button>
             </div>
           </div>
 
-          {/* Mode 1: GitHub Repo URL Form */}
+          {/* Mode 1: GitHub Repo URL */}
           {mode === 'github' && (
             <div className="mt-5 space-y-4">
               <div>
@@ -152,28 +230,43 @@ export const App: React.FC = () => {
                 </label>
                 <input
                   type="text"
-                  placeholder="https://github.com/owner/repository (e.g., https://github.com/pallets/flask)"
+                  placeholder="https://github.com/pallets/flask  or  pallets/flask"
                   value={githubUrl}
                   onChange={(e) => setGithubUrl(e.target.value)}
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs font-mono text-white focus:outline-none focus:border-zinc-500"
                 />
-                <p className="text-[11px] text-zinc-500 font-mono mt-1">
-                  Fixate will clone the repository, run pytest, build AST graph, retrieve context, and generate a verified diff patch.
+                <p className="text-[11px] font-mono text-zinc-500 mt-1.5">
+                  Fixate requires a Python repository containing .py files. It will clone the repository, run pytest, build AST graph, retrieve context, and generate a verified diff patch.
                 </p>
               </div>
 
-              <div>
-                <label className="text-xs font-mono text-zinc-400 font-semibold block mb-2 flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-zinc-500" />
-                  Optional Pytest Error Log (Leave blank to auto-detect pytest errors):
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Paste failing pytest traceback log (Optional)..."
-                  value={customPytestLog}
-                  onChange={(e) => setCustomPytestLog(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs font-mono text-white focus:outline-none focus:border-zinc-500"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-mono text-zinc-400 block mb-1.5 flex items-center gap-1.5">
+                    <Code2 className="w-3.5 h-3.5 text-zinc-500" />
+                    Optional Pytest Error Log (Leave blank to auto-detect pytest errors):
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Paste failing pytest traceback log (Optional)..."
+                    value={customPytestLog}
+                    onChange={(e) => setCustomPytestLog(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs font-mono text-white focus:outline-none focus:border-zinc-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-mono text-zinc-400 block mb-1.5 flex items-center gap-1.5">
+                    <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
+                    Optional Environment Variables (.env Secrets):
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="API_KEY=your_key_here&#10;DATABASE_URL=postgres://..."
+                    value={customEnvText}
+                    onChange={(e) => setCustomEnvText(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs font-mono text-white focus:outline-none focus:border-zinc-500"
+                  />
+                </div>
               </div>
 
               <div className="pt-2 flex justify-end">
@@ -206,7 +299,7 @@ export const App: React.FC = () => {
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
                 {sampleRepos.map((repo) => {
                   const isSelected = selectedRepo === repo.id;
                   return (
@@ -215,23 +308,23 @@ export const App: React.FC = () => {
                       onClick={() => setSelectedRepo(repo.id)}
                       className={`p-3.5 rounded-xl border text-left transition-all ${
                         isSelected
-                          ? 'bg-zinc-900 border-zinc-700 text-white shadow-sm'
+                          ? 'bg-zinc-900 border-emerald-500/50 text-white shadow-sm'
                           : 'bg-zinc-950 border-zinc-800/80 text-zinc-400 hover:border-zinc-700'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-2">
                           <Code2 className={`w-3.5 h-3.5 ${isSelected ? 'text-emerald-400' : 'text-zinc-500'}`} />
-                          <span className="font-mono font-bold text-xs text-white">{repo.title}</span>
+                          <span className="font-mono font-bold text-xs text-white truncate max-w-[120px]">{repo.title}</span>
                         </div>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-zinc-800">
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-zinc-800 truncate">
                           {repo.type}
                         </span>
                       </div>
                       <div className="text-[11px] font-mono text-rose-400 font-medium mb-1 flex items-center gap-1.5">
                         <AlertTriangle className="w-3 h-3 text-rose-400 shrink-0" /> {repo.bug}
                       </div>
-                      <p className="text-[11px] text-zinc-500 font-sans leading-snug">{repo.description}</p>
+                      <p className="text-[11px] text-zinc-500 font-sans leading-snug line-clamp-2">{repo.description}</p>
                     </button>
                   );
                 })}
@@ -249,72 +342,86 @@ export const App: React.FC = () => {
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. C:\Users\Admin\Desktop\MyProject or /home/user/myproject"
+                  placeholder="C:\Users\Admin\Desktop\Projects\Fixate\sample_repos\enterprise_app"
                   value={customRepoPath}
                   onChange={(e) => setCustomRepoPath(e.target.value)}
                   className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs font-mono text-white focus:outline-none focus:border-zinc-500"
                 />
               </div>
 
-              <div>
-                <label className="text-xs font-mono text-zinc-400 font-semibold block mb-2">
-                  Optional Pytest Traceback Log:
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Paste failing traceback (Optional)..."
-                  value={customPytestLog}
-                  onChange={(e) => setCustomPytestLog(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs font-mono text-white focus:outline-none focus:border-zinc-500"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-mono text-zinc-400 block mb-1.5 flex items-center gap-1.5">
+                    <Code2 className="w-3.5 h-3.5 text-zinc-500" />
+                    Optional Pytest Error Log (Leave blank to auto-detect pytest errors):
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Paste failing pytest traceback log (Optional)..."
+                    value={customPytestLog}
+                    onChange={(e) => setCustomPytestLog(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs font-mono text-white focus:outline-none focus:border-zinc-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-mono text-zinc-400 block mb-1.5 flex items-center gap-1.5">
+                    <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
+                    Optional Environment Variables (.env Secrets):
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="API_KEY=your_key_here&#10;DATABASE_URL=postgres://..."
+                    value={customEnvText}
+                    onChange={(e) => setCustomEnvText(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl p-3 text-xs font-mono text-white focus:outline-none focus:border-zinc-500"
+                  />
+                </div>
               </div>
 
               <div className="pt-2 flex justify-end">
                 <button
                   onClick={handleTriggerIncident}
-                  disabled={isLoading || (!customRepoPath.trim() && !customPytestLog.trim())}
+                  disabled={isLoading || !customRepoPath.trim()}
                   className="bg-white hover:bg-zinc-200 text-black font-mono font-bold text-xs px-6 py-2.5 rounded-xl flex items-center gap-2 transition-all disabled:opacity-40"
                 >
                   <Play className="w-3.5 h-3.5 fill-black" />
-                  {isLoading ? 'EXECUTING...' : 'RUN LOCAL FIX'}
+                  {isLoading ? 'ANALYZING & FIXING...' : 'TRIGGER SELF-HEALING'}
                 </button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Tab Views */}
+        {/* Tab View Switcher */}
         {activeTab === 'live' && (
-          <div>
-            <PipelineFlow summary={incidentSummary} />
-            {incidentSummary?.verified_patch && (
-              <DiffViewer patch={incidentSummary.verified_patch} risk={incidentSummary.risk_assessment} />
-            )}
-            <IncidentHistory events={telemetryEvents} />
+          <div className="space-y-8 animate-in fade-in duration-300">
+            <PipelineFlow summary={incidentSummary} liveState={liveState} />
+            <DiffViewer patch={incidentSummary?.verified_patch} risk={incidentSummary?.risk_assessment} />
           </div>
         )}
 
         {activeTab === 'graph' && (
-          <GraphViewer
-            repoName={selectedRepo}
-            customRepoPath={
-              mode === 'github' && githubUrl.trim()
-                ? githubUrl.trim()
-                : mode === 'local' && customRepoPath.trim()
-                ? customRepoPath.trim()
-                : undefined
-            }
-          />
+          <div className="animate-in fade-in duration-300">
+            <GraphViewer repoName={selectedRepo} customRepoPath={customRepoPath || (mode === 'github' ? githubUrl : undefined)} />
+          </div>
         )}
 
-        {activeTab === 'history' && <IncidentHistory events={telemetryEvents} />}
+        {activeTab === 'history' && (
+          <div className="animate-in fade-in duration-300">
+            <IncidentHistory events={incidentSummary?.telemetry_events || []} />
+          </div>
+        )}
 
-        {activeTab === 'eval' && <EvalCharts />}
+        {activeTab === 'eval' && (
+          <div className="animate-in fade-in duration-300">
+            <EvalCharts />
+          </div>
+        )}
       </main>
 
-      <footer className="border-t border-zinc-900 py-6 text-center text-xs text-zinc-500 font-mono">
+      <footer className="border-t border-zinc-800/80 py-4 text-center text-xs font-mono text-zinc-400">
         Fixate — Autonomous Self-Healing CI & Codebase Agent • Docker Sandbox Isolation
       </footer>
     </div>
   );
-};
+}
