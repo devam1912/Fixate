@@ -16,6 +16,16 @@ class BaseLLMProvider(ABC):
         """Return the provider identification name."""
         pass
 
+    @property
+    def is_live(self) -> bool:
+        """Whether this provider can reach a real model.
+
+        Providers that fall back to canned or schema-shaped placeholder output when
+        unconfigured MUST report False here. Stages that need genuine reasoning check
+        this and refuse to run rather than acting on fabricated output.
+        """
+        return True
+
     @abstractmethod
     def generate(
         self,

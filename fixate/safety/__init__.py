@@ -2,4 +2,6 @@
 
 from fixate.safety.approval import HumanApprovalChecker, RiskAssessment
 
-__all__ = ["HumanApprovalChecker", "RiskAssessment"]
+SafetyChecker = HumanApprovalChecker
+
+__all__ = ["HumanApprovalChecker", "SafetyChecker", "RiskAssessment"]

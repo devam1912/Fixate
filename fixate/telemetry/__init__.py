@@ -2,4 +2,7 @@
 
 from fixate.telemetry.logger import TelemetryLogger, AgentTelemetryEvent
 
-__all__ = ["TelemetryLogger", "AgentTelemetryEvent"]
+TelemetryTracker = TelemetryLogger
+TelemetryEvent = AgentTelemetryEvent
+
+__all__ = ["TelemetryLogger", "TelemetryTracker", "AgentTelemetryEvent", "TelemetryEvent"]

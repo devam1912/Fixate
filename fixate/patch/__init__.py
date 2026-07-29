@@ -1,5 +1,8 @@
 """Patch Generation Package."""
 
 from fixate.patch.schema import GeneratedPatch, PatchRequest
+from fixate.patch.applicator import PatchApplicator
 
-__all__ = ["GeneratedPatch", "PatchRequest"]
+UnifiedDiffApplicator = PatchApplicator
+
+__all__ = ["GeneratedPatch", "PatchRequest", "PatchApplicator", "UnifiedDiffApplicator"]

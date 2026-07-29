@@ -30,6 +30,13 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     def name(self) -> str:
         return f"openai-compat ({self._model_name})"
 
+    @property
+    def is_live(self) -> bool:
+        """True when a real key is configured, or a custom endpoint (e.g. Ollama) is set."""
+        has_real_key = bool(self._api_key) and self._api_key != "ollama"
+        has_custom_endpoint = self._base_url != "https://api.openai.com/v1"
+        return has_real_key or has_custom_endpoint
+
     def generate(
         self,
         prompt: str,

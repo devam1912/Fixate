@@ -1,0 +1,51 @@
+services:
+  fixate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fixate-app
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      # Provider selection and credentials. Unset values are passed through as
+      # empty, and the pipeline fails loudly rather than fabricating output.
+      - FIXATE_LLM_PROVIDER=${FIXATE_LLM_PROVIDER:-gemini}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - APP_ENV=production
+      - PORT=8000
+      # Rate limits. Compose forwards only what is named here, so a value set in
+      # .env reaches the container only if it also appears in this list. Left
+      # empty, the code's own defaults apply.
+      - FIXATE_EMBED_MAX_RPM=${FIXATE_EMBED_MAX_RPM:-}
+      - FIXATE_EMBED_MAX_TPM=${FIXATE_EMBED_MAX_TPM:-}
+      - FIXATE_EMBED_MAX_RPD=${FIXATE_EMBED_MAX_RPD:-}
+      - FIXATE_LLM_MAX_RPM=${FIXATE_LLM_MAX_RPM:-}
+      - FIXATE_LLM_MAX_TPM=${FIXATE_LLM_MAX_TPM:-}
+      - FIXATE_LLM_MAX_RPD=${FIXATE_LLM_MAX_RPD:-}
+    volumes:
+      - fixate_data:/app/data
+      # The vector index must outlive the container, or the incremental indexing
+      # that keeps embedding usage inside quota is defeated by every rebuild:
+      # a new image means a new writable layer, so an unmounted /app/chroma_db
+      # starts empty and the whole repository is re-embedded from scratch.
+      - fixate_chroma:/app/chroma_db
+      # Incident history the dashboard reads back.
+      - fixate_telemetry:/app/telemetry_logs
+      # The Docker socket is deliberately NOT mounted. Sharing it grants effective
+      # root on the host, and this container installs dependencies from untrusted
+      # repositories. The sandbox does not need it either: sandbox.py detects that
+      # it is already containerized and runs tests via subprocess isolation.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  fixate_data:
+  fixate_chroma:
+  fixate_telemetry:

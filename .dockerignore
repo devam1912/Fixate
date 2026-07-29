@@ -1,0 +1,22 @@
+.git
+.gitignore
+.venv
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+node_modules/
+dashboard/node_modules/
+dashboard/dist/
+scratch/
+dist/
+build/
+*.log
+
+# Sample repo dependencies are installed at runtime, never baked into the image.
+sample_repos/**/node_modules
+sample_repos/**/.fixate_venv
+scratch/
+data/

@@ -1,49 +1,85 @@
-"""Server-Sent Events (SSE) and WebSocket routers for live telemetry event streaming."""
+"""Live telemetry streaming over SSE and WebSocket.
 
-import json
+Both endpoints await events pushed by the dispatcher rather than polling a queue on
+a timer, so the dashboard advances as each stage completes instead of redrawing
+once the whole run has finished.
+"""
+
 import asyncio
+import logging
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
-from fixate.telemetry.events import EventStreamDispatcher
+from fixate.telemetry.events import DISPATCHER
 from fixate.telemetry.logger import AgentTelemetryEvent
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/stream")
-dispatcher = EventStreamDispatcher()
+
+# Emitted periodically so proxies do not close an idle connection, and so a client
+# can tell "still working" apart from "stream died".
+HEARTBEAT_SECONDS = 15.0
 
 
 @router.get("/sse/{incident_id}")
 async def sse_live_stream(incident_id: str):
-    """Server-Sent Events endpoint streaming live agent telemetry updates to dashboard."""
-    event_queue = dispatcher.subscribe_incident(incident_id)
+    """Server-Sent Events stream of an incident's telemetry."""
+    queue = DISPATCHER.subscribe_incident(incident_id)
 
     async def event_generator():
         try:
             while True:
-                if not event_queue.empty():
-                    evt: AgentTelemetryEvent = event_queue.get_nowait()
-                    data = evt.model_dump_json()
-                    yield f"event: agent_event\ndata: {data}\n\n"
-                await asyncio.sleep(0.5)
-        except asyncio.CancelledError:
-            dispatcher.unsubscribe_incident(incident_id, event_queue)
+                try:
+                    event: AgentTelemetryEvent = await asyncio.wait_for(
+                        queue.get(), timeout=HEARTBEAT_SECONDS
+                    )
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+                yield f"event: agent_event\ndata: {event.model_dump_json()}\n\n"
+
+                # A terminal transition ends the stream so the client is not left
+                # holding an open connection after the incident finishes.
+                if event.action in ("PIPELINE_HALTED", "PIPELINE_CRASHED") or (
+                    event.action == "STATE_TRANSITION"
+                    and event.output_summary in ("COMPLETED", "FAILED", "PENDING_APPROVAL")
+                ):
+                    yield "event: done\ndata: {}\n\n"
+                    return
+        except asyncio.CancelledError:
+            raise
+        finally:
+            DISPATCHER.unsubscribe_incident(incident_id, queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.websocket("/ws/{incident_id}")
 async def websocket_live_stream(websocket: WebSocket, incident_id: str):
-    """WebSocket endpoint for real-time bidirectional telemetry streaming."""
+    """WebSocket stream of an incident's telemetry."""
     await websocket.accept()
-    event_queue = dispatcher.subscribe_incident(incident_id)
+    queue = DISPATCHER.subscribe_incident(incident_id)
 
     try:
         while True:
-            if not event_queue.empty():
-                evt: AgentTelemetryEvent = event_queue.get_nowait()
-                await websocket.send_text(evt.model_dump_json())
-            await asyncio.sleep(0.3)
+            try:
+                event: AgentTelemetryEvent = await asyncio.wait_for(
+                    queue.get(), timeout=HEARTBEAT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                await websocket.send_text('{"type":"keepalive"}')
+                continue
+            await websocket.send_text(event.model_dump_json())
     except WebSocketDisconnect:
-        dispatcher.unsubscribe_incident(incident_id, event_queue)
-    except Exception:
-        dispatcher.unsubscribe_incident(incident_id, event_queue)
+        pass
+    except Exception as exc:
+        logger.warning("WebSocket stream for %s ended: %s", incident_id, exc)
+    finally:
+        DISPATCHER.unsubscribe_incident(incident_id, queue)

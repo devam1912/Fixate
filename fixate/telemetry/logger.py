@@ -7,6 +7,8 @@ import logging
 from typing import Dict, List, Optional, Callable
 from pydantic import BaseModel, Field
 
+from fixate.paths import TELEMETRY_LOG_DIR
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,7 +29,7 @@ class TelemetryLogger:
     """Central telemetry logger persisting incident event streams for replay and dashboard visualization."""
 
     def __init__(self, log_dir: Optional[str] = None):
-        self.log_dir = log_dir or os.path.join(os.getcwd(), "telemetry_logs")
+        self.log_dir = log_dir or str(TELEMETRY_LOG_DIR)
         os.makedirs(self.log_dir, exist_ok=True)
         self._subscribers: List[Callable[[AgentTelemetryEvent], None]] = []
 

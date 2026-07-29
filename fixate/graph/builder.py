@@ -6,10 +6,19 @@ from typing import Dict, List, Optional
 import networkx as nx
 
 from fixate.graph.base_parser import BaseLanguageParser, CodeSymbol, SymbolType
-from fixate.graph.python_parser import PythonASTParser
-from fixate.graph.js_stub_parser import JavaScriptTSParser
 
 logger = logging.getLogger(__name__)
+
+
+def _default_parsers() -> List[BaseLanguageParser]:
+    """Symbol extractors for every registered language.
+
+    Imported lazily to keep the graph layer free of a package-level dependency on
+    the toolchains, which themselves import from this module.
+    """
+    from fixate.languages import registry
+
+    return [toolchain.parser() for toolchain in registry.all_enabled()]
 
 
 class CodebaseGraphBuilder:
@@ -19,10 +28,7 @@ class CodebaseGraphBuilder:
     """
 
     def __init__(self, parsers: Optional[List[BaseLanguageParser]] = None):
-        self.parsers: List[BaseLanguageParser] = parsers or [
-            PythonASTParser(),
-            JavaScriptTSParser(),
-        ]
+        self.parsers: List[BaseLanguageParser] = parsers or _default_parsers()
         self.graph = nx.DiGraph()
         self.symbols: Dict[str, CodeSymbol] = {}
 
@@ -57,11 +63,23 @@ class CodebaseGraphBuilder:
                     file_symbols = parser.parse_file(full_path)
                     all_symbols.extend(file_symbols)
 
-        # 2. Add nodes to graph
-        name_to_symbol_id: Dict[str, str] = {}
+        # 2. Add nodes to graph.
+        # A bare name can belong to several symbols (the same method name on
+        # different classes), so names map to every matching id rather than to one
+        # arbitrary winner -- otherwise call edges attach to whichever definition
+        # happened to be parsed last.
+        name_to_symbol_ids: Dict[str, List[str]] = {}
         for sym in all_symbols:
+            if sym.id in self.symbols:
+                logger.warning(
+                    "Duplicate symbol id %s (%s:%d); keeping the first definition.",
+                    sym.id,
+                    sym.file_path,
+                    sym.start_line,
+                )
+                continue
             self.symbols[sym.id] = sym
-            name_to_symbol_id[sym.name] = sym.id
+            name_to_symbol_ids.setdefault(sym.name, []).append(sym.id)
             self.graph.add_node(
                 sym.id,
                 name=sym.name,
@@ -76,16 +94,16 @@ class CodebaseGraphBuilder:
 
         # 3. Add edges (calls, imports, and test relationships)
         for sym in all_symbols:
+            if self.symbols.get(sym.id) is not sym:
+                continue
             for call_target in sym.calls:
-                if call_target in name_to_symbol_id:
-                    target_id = name_to_symbol_id[call_target]
-                    if target_id != sym.id:
-                        # Edge: caller -> callee
-                        self.graph.add_edge(sym.id, target_id, relation="calls")
-                        
-                        # If sym is a test, mark edge relation as 'tests'
-                        if sym.is_test:
-                            self.graph.add_edge(sym.id, target_id, relation="tests")
+                for target_id in name_to_symbol_ids.get(call_target, ()):
+                    if target_id == sym.id:
+                        continue
+                    # Edge: caller -> callee. A test calling a symbol is also a
+                    # 'tests' relation, which the runner uses to select coverage.
+                    relation = "tests" if sym.is_test else "calls"
+                    self.graph.add_edge(sym.id, target_id, relation=relation)
 
         logger.info(f"Built codebase graph: {self.graph.number_of_nodes()} nodes, {self.graph.number_of_edges()} edges")
         return self.graph

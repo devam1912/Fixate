@@ -1,4 +1,4 @@
-"""Google Gemini LLM provider implementation with Gemini 2.5 Flash Lite & Rate Limiting."""
+"""Google Gemini LLM provider implementation with Gemini 3.5 Flash Lite & Rate Limiting."""
 
 import os
 import json
@@ -7,25 +7,55 @@ from typing import Type, TypeVar, get_origin, get_args
 from pydantic import BaseModel
 
 from fixate.llm.base import BaseLLMProvider
-from fixate.llm.rate_limiter import LLM_RATE_LIMITER
+from fixate.llm.rate_limiter import LLM_RATE_LIMITER, estimate_tokens
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
+def _dummy_value_for_annotation(annotation):
+    """Build a small valid value for simulation-mode structured responses."""
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+
+    if origin in (list, list) or annotation is list:
+        return []
+    if annotation is str:
+        return "simulated_value"
+    if annotation is int:
+        return 1
+    if annotation is float:
+        return 1.0
+    if annotation is bool:
+        return False
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return _dummy_payload_for_schema(annotation)
+    if origin is not None and args:
+        return _dummy_value_for_annotation(args[0])
+    return "simulated_value"
+
+
+def _dummy_payload_for_schema(schema: Type[BaseModel]) -> dict:
+    dummy_data = {}
+    for field_name, field_info in schema.model_fields.items():
+        if field_name == "suspect_functions":
+            dummy_data[field_name] = ["target_function"]
+        elif field_name == "reasoning":
+            dummy_data[field_name] = "Simulated reasoning explanation."
+        elif field_name == "rankings":
+            dummy_data[field_name] = []
+        else:
+            dummy_data[field_name] = _dummy_value_for_annotation(field_info.annotation)
+    return dummy_data
+
+
 class GeminiProvider(BaseLLMProvider):
-    """Google Gemini API Provider, configured for Gemini 2.5 Flash / Flash Lite with strict rate limiting.
-    
-    Rate limits enforced:
-    - Max 12 requests / minute (RPM)
-    - Max 250k tokens / minute (TPM)
-    - Max 500 requests / day (RPD)
-    """
+    """Google Gemini API Provider, configured for Gemini 3.5 Flash Lite with strict rate limiting."""
 
     def __init__(
         self,
         api_key: str | None = None,
-        model_name: str = "gemini-2.5-flash",
+        model_name: str = "gemini-3.5-flash-lite",
     ):
         self._api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self._model_name = os.getenv("GEMINI_LLM_MODEL") or model_name
@@ -42,6 +72,11 @@ class GeminiProvider(BaseLLMProvider):
     def name(self) -> str:
         return f"gemini ({self._model_name})"
 
+    @property
+    def is_live(self) -> bool:
+        """False when no API key is configured; generate_* then return placeholders."""
+        return self._client is not None
+
     def generate(
         self,
         prompt: str,
@@ -49,7 +84,7 @@ class GeminiProvider(BaseLLMProvider):
         temperature: float = 0.2,
         max_tokens: int = 2048,
     ) -> str:
-        est_tokens = len(prompt.split()) + max_tokens
+        est_tokens = estimate_tokens(prompt) + max_tokens
         LLM_RATE_LIMITER.acquire(estimated_tokens=est_tokens)
 
         if self._client:
@@ -70,7 +105,6 @@ class GeminiProvider(BaseLLMProvider):
                 logger.error(f"Gemini API generation failed: {err}")
                 raise RuntimeError(f"Gemini API call error: {err}") from err
 
-        # Simulation fallback if no key provided in dev/test environment
         logger.info("Using Gemini provider simulation mode (GEMINI_API_KEY not set)")
         return f"[Simulated Gemini Output for prompt: {prompt[:50]}...]"
 
@@ -81,7 +115,7 @@ class GeminiProvider(BaseLLMProvider):
         system_instruction: str | None = None,
         temperature: float = 0.1,
     ) -> T:
-        est_tokens = len(prompt.split()) + 500
+        est_tokens = estimate_tokens(prompt) + 500
         LLM_RATE_LIMITER.acquire(estimated_tokens=est_tokens)
 
         if self._client:
@@ -102,40 +136,7 @@ class GeminiProvider(BaseLLMProvider):
                 return response_schema.model_validate_json(raw_json)
             except Exception as err:
                 logger.error(f"Gemini structured generation failed: {err}")
-
-        # Type-aware simulation fallback for offline testing or when API key is unconfigured
-        schema_fields = response_schema.model_fields
-        dummy_data = {}
-
-        for field_name, field_info in schema_fields.items():
-            if field_name == "diff" or field_name == "unified_diff":
-                dummy_data[field_name] = "--- a/calculator.py\n+++ b/calculator.py\n@@ -5 +5 @@\n-    return price * (discount / 100)\n+    return price * (1 - discount / 100)"
-            elif field_name == "lines_changed":
-                dummy_data[field_name] = 2
-            elif field_name == "rankings":
-                dummy_data[field_name] = [{"symbol_id": "sample_symbol", "rank": 1, "plausibility_reason": "Suspect function identified by graph walk."}]
-            elif field_name == "suspect_functions":
-                dummy_data[field_name] = ["target_function"]
-            elif field_name == "rank":
-                dummy_data[field_name] = 1
-            elif field_name == "target_file":
-                dummy_data[field_name] = "calculator.py"
-            elif field_name == "explanation":
-                dummy_data[field_name] = "Corrected percentage discount formula calculation."
-            elif field_name == "reasoning":
-                dummy_data[field_name] = "Simulated reasoning explanation."
-            else:
-                annotation = field_info.annotation
-                origin = get_origin(annotation)
-                if origin is list or annotation is list:
-                    dummy_data[field_name] = []
-                elif annotation is int:
-                    dummy_data[field_name] = 1
-                elif annotation is float:
-                    dummy_data[field_name] = 1.0
-                elif annotation is bool:
-                    dummy_data[field_name] = True
-                else:
-                    dummy_data[field_name] = "simulated_value"
-
-        return response_schema.model_validate(dummy_data)
+                raise RuntimeError(f"Gemini API structured generation failed: {err}") from err
+        
+        logger.info("Using Gemini structured simulation mode (GEMINI_API_KEY not set)")
+        return response_schema.model_validate(_dummy_payload_for_schema(response_schema))

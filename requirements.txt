@@ -1,12 +1,22 @@
-networkx>=3.0
-chromadb>=0.4.0
-pydantic>=2.0.0
 fastapi>=0.100.0
 uvicorn>=0.20.0
 pytest>=7.0.0
-docker>=6.0.0
+networkx>=3.0
+chromadb>=0.4.0
+pydantic>=2.0.0
 google-genai>=0.1.0
 requests>=2.28.0
 python-dotenv>=1.0.0
-pytest-asyncio>=0.21.0
+docker>=6.0.0
 httpx>=0.24.0
+uv>=0.1.0
+
+# JavaScript/TypeScript AST parsing. Pure-Python wheels; no Node needed to parse.
+tree-sitter>=0.23.0
+tree-sitter-javascript>=0.23.0
+tree-sitter-typescript>=0.23.0
+
+# Lint gate for repositories with no test suite. Optional at runtime -- gates
+# detect their own availability -- but shipping it means Python projects always
+# have a real linter to verify against.
+ruff>=0.6.0
