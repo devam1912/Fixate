@@ -1,5 +1,5 @@
 import React from 'react';
-import { Terminal, CheckCircle2, XCircle, Loader2, AlertCircle } from 'lucide-react';
+import { Terminal, CheckCircle2, XCircle, Loader2, AlertCircle, ArrowRight } from 'lucide-react';
 import { TelemetryEvent } from '../types';
 
 interface IncidentHistoryProps {
@@ -8,9 +8,9 @@ interface IncidentHistoryProps {
 
 export const IncidentHistory: React.FC<IncidentHistoryProps> = ({ events }) => {
   return (
-    <div className="glass-card p-6 rounded-3xl border border-white/[0.08] my-6">
-      <div className="flex items-center justify-between pb-4 mb-4 border-b border-white/[0.08]">
-        <h2 className="text-xs font-mono font-bold uppercase tracking-widest text-emerald-400 flex items-center gap-2">
+    <div className="glass-card p-6 rounded-3xl border border-zinc-800 my-6">
+      <div className="flex items-center justify-between pb-4 mb-4 border-b border-zinc-800">
+        <h2 className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-300 flex items-center gap-2">
           <Terminal className="w-4 h-4 text-emerald-400" />
           Telemetry Audit Log Feed ({events.length} Structured Events)
         </h2>
@@ -26,18 +26,24 @@ export const IncidentHistory: React.FC<IncidentHistoryProps> = ({ events }) => {
           {events.map((evt, idx) => (
             <div
               key={idx}
-              className="p-3.5 rounded-2xl bg-[#08080c] border border-white/[0.06] flex items-start gap-3 transition-all hover:border-white/[0.12]"
+              className="p-3.5 rounded-2xl bg-zinc-950 border border-zinc-800 flex items-start gap-3 transition-all hover:border-zinc-700"
             >
               <div className="mt-0.5 shrink-0">
-                {evt.result === 'SUCCESS' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-                {evt.result === 'FAILURE' && <XCircle className="w-4 h-4 text-rose-400" />}
-                {evt.result === 'IN_PROGRESS' && <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />}
-                {evt.result === 'REQUIRES_APPROVAL' && <AlertCircle className="w-4 h-4 text-amber-400" />}
+                {evt.action === 'STATE_TRANSITION' ? (
+                  <ArrowRight className="w-4 h-4 text-zinc-400" />
+                ) : (
+                  <>
+                    {evt.result === 'SUCCESS' && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                    {evt.result === 'FAILURE' && <XCircle className="w-4 h-4 text-rose-400" />}
+                    {evt.result === 'IN_PROGRESS' && <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />}
+                    {evt.result === 'REQUIRES_APPROVAL' && <AlertCircle className="w-4 h-4 text-amber-400" />}
+                  </>
+                )}
               </div>
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between text-[11px] mb-1">
-                  <span className="font-bold text-violet-300">
+                  <span className="font-bold text-zinc-300">
                     [{evt.agent}] <span className="text-white font-medium">{evt.action}</span>
                   </span>
                   <span className="text-zinc-500 text-[10px]">{new Date(evt.timestamp).toLocaleTimeString()}</span>
