@@ -4,10 +4,14 @@ import { IncidentSummary } from '../types';
 
 interface PipelineFlowProps {
   summary: IncidentSummary | null;
+  /** Stage reported by the live telemetry stream while a run is in flight. */
+  liveState?: string | null;
 }
 
-export const PipelineFlow: React.FC<PipelineFlowProps> = ({ summary }) => {
-  const currentState = summary?.state || 'IDLE';
+export const PipelineFlow: React.FC<PipelineFlowProps> = ({ summary, liveState }) => {
+  // The live stream drives the view while the incident is running; the terminal
+  // summary takes over once it arrives.
+  const currentState = summary?.state || liveState || 'IDLE';
 
   const stages = [
     {
@@ -31,7 +35,12 @@ export const PipelineFlow: React.FC<PipelineFlowProps> = ({ summary }) => {
     {
       id: 'VERIFYING',
       name: '04. Verification',
-      description: `Docker Sandbox Execution (Attempt ${summary?.total_attempts || 0}/3)`,
+      // Zero attempts means the checker fixed its own diagnostic before the
+      // repair loop ran. Rendering that as "Attempt 0/3" reads like a failure.
+      description:
+        summary?.total_attempts === 0 && summary?.state === 'COMPLETED'
+          ? 'Resolved by the checker, no repair attempt needed'
+          : `Docker Sandbox Execution (Attempt ${summary?.total_attempts || 0}/3)`,
       icon: Cpu,
     },
     {
@@ -50,8 +59,8 @@ export const PipelineFlow: React.FC<PipelineFlowProps> = ({ summary }) => {
     const stageIdx = stateOrder.indexOf(stageId);
 
     if (summary.state === 'FAILED') {
-      if (stageIdx === currentIdx) return 'failed';
-      if (stageIdx < currentIdx) return 'completed';
+      if (stageId === 'VERIFYING' || stageIdx === currentIdx) return 'failed';
+      if (stageIdx < 3 || (currentIdx > -1 && stageIdx < currentIdx)) return 'completed';
       return 'pending';
     }
 
@@ -81,7 +90,11 @@ export const PipelineFlow: React.FC<PipelineFlowProps> = ({ summary }) => {
             <span className="px-3 py-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-400">
               Incident ID: <span className="text-white font-bold">{summary.incident_id}</span>
             </span>
-            <span className="px-3 py-1 rounded bg-zinc-900 border border-zinc-800 text-zinc-300 font-semibold">
+            <span className={`px-3 py-1 rounded border text-xs font-semibold ${
+              summary.state === 'COMPLETED' ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-400' :
+              summary.state === 'FAILED' ? 'bg-rose-950/60 border-rose-500/40 text-rose-400' :
+              'bg-zinc-900 border-zinc-800 text-zinc-300'
+            }`}>
               State: {summary.state}
             </span>
           </div>
