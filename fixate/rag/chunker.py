@@ -10,13 +10,17 @@ every chunk is a syntactically valid, self-contained code symbol.
 
 import os
 import logging
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
-from fixate.graph.python_parser import PythonASTParser
-from fixate.graph.base_parser import SymbolType
+from fixate.graph.base_parser import BaseLanguageParser, SymbolType
 
 logger = logging.getLogger(__name__)
+
+_SKIP_DIRS = (
+    ".git", "__pycache__", "venv", ".venv", "node_modules", "dist", "build",
+    "chroma_db", ".pytest_cache", ".fixate_venv", "coverage",
+)
 
 
 class CodeChunk(BaseModel):
@@ -33,12 +37,24 @@ class CodeChunk(BaseModel):
 class ASTCodeChunker:
     """Chunks source code repositories along syntactic AST boundaries (functions and classes)."""
 
-    def __init__(self):
-        self.parser = PythonASTParser()
+    def __init__(self, parsers: Optional[List[BaseLanguageParser]] = None):
+        if parsers is None:
+            from fixate.languages import registry
+
+            parsers = [toolchain.parser() for toolchain in registry.all_enabled()]
+        self.parsers = parsers
+
+    def parser_for(self, file_path: str) -> Optional[BaseLanguageParser]:
+        """The extractor owning this file, or None if the language is unsupported."""
+        return next((p for p in self.parsers if p.supports_file(file_path)), None)
 
     def chunk_file(self, file_path: str) -> List[CodeChunk]:
-        """Chunk a single Python file into AST semantic chunks."""
-        symbols = self.parser.parse_file(file_path)
+        """Chunk a source file into AST semantic chunks."""
+        parser = self.parser_for(file_path)
+        if parser is None:
+            return []
+
+        symbols = parser.parse_file(file_path)
         chunks: List[CodeChunk] = []
 
         for sym in symbols:
@@ -58,17 +74,19 @@ class ASTCodeChunker:
         return chunks
 
     def chunk_directory(self, root_dir: str) -> List[CodeChunk]:
-        """Recursively chunk all Python files in a directory along AST boundaries."""
+        """Recursively chunk every supported source file along AST boundaries."""
         all_chunks: List[CodeChunk] = []
 
-        for root, _, files in os.walk(root_dir):
-            if any(skip in root for skip in (".git", "__pycache__", "venv", ".venv", "node_modules", "dist", "chroma_db")):
-                continue
+        for root, dirs, files in os.walk(root_dir):
+            # Prune in place so os.walk never descends into vendored trees; the
+            # previous substring test on `root` also rejected legitimate paths that
+            # merely contained one of these names.
+            dirs[:] = [d for d in dirs if d not in _SKIP_DIRS]
             for file in files:
-                if file.endswith(".py"):
-                    full_path = os.path.normpath(os.path.join(root, file))
-                    file_chunks = self.chunk_file(full_path)
-                    all_chunks.extend(file_chunks)
+                full_path = os.path.normpath(os.path.join(root, file))
+                all_chunks.extend(self.chunk_file(full_path))
 
-        logger.info(f"Chunked directory {root_dir}: {len(all_chunks)} AST semantic chunks generated")
+        logger.info(
+            "Chunked directory %s: %d AST semantic chunks generated", root_dir, len(all_chunks)
+        )
         return all_chunks
