@@ -4,7 +4,7 @@ import os
 import tempfile
 import pytest
 from fixate.graph.python_parser import PythonASTParser
-from fixate.graph.js_stub_parser import JavaScriptTSParser
+from fixate.graph.ts_parser import TypeScriptParser
 from fixate.graph.builder import CodebaseGraphBuilder
 from fixate.graph.traversal import GraphTraversal
 from fixate.graph.base_parser import SymbolType
@@ -54,23 +54,33 @@ def test_python_ast_parser_extraction():
     assert "calculate_tax" in test_sym.calls
 
 
-def test_js_stub_parser():
-    parser = JavaScriptTSParser()
+def test_typescript_parser():
+    parser = TypeScriptParser()
     assert parser.supports_file("app.ts") is True
     assert parser.supports_file("index.jsx") is True
     assert parser.supports_file("main.py") is False
 
     js_code = """
-    export function processPayment(amount) {
-        return amount * 1.1;
-    }
-    it('should process payment', () => {
-        expect(processPayment(10)).toBe(11);
-    });
-    """
+export function processPayment(amount) {
+    return applyFee(amount);
+}
+it('should process payment', () => {
+    expect(processPayment(10)).toBe(11);
+});
+"""
     symbols = parser.parse_code(js_code, file_path="payment.ts")
-    assert len(symbols) >= 1
-    assert any(s.name == "processPayment" for s in symbols)
+    by_name = {s.name: s for s in symbols}
+
+    assert "processPayment" in by_name
+    # The stub recorded a single line and never populated calls, so JS symbols
+    # entered the graph with no edges at all.
+    payment = by_name["processPayment"]
+    assert "applyFee" in payment.calls
+    assert payment.end_line > payment.start_line
+    assert "return applyFee(amount);" in payment.code
+
+    assert "should process payment" in by_name
+    assert by_name["should process payment"].is_test is True
 
 
 def test_graph_builder_and_traversal():
