@@ -1,10 +1,20 @@
-"""Curated suite of 15 benchmark test cases covering diverse bug categories."""
+"""Benchmark suite of seeded defects across languages and bug categories.
+
+No case carries a hand-written failure log. The harness runs each repository's own
+suite and feeds the pipeline whatever the runner actually printed, so a case cannot
+drift from the code it describes. If a repository's tests stop failing, the harness
+says so rather than scoring against a traceback nobody produced.
+
+Each entry names the symbol the localizer is expected to identify, which is what
+`localization_accuracy_pct` measures.
+"""
 
 from typing import List
+
 from fixate.eval.harness import BenchmarkTestCase
 
-BENCHMARK_SUITE_15: List[BenchmarkTestCase] = [
-    # Calculator App Cases (Math & Logic Errors)
+BENCHMARK_SUITE: List[BenchmarkTestCase] = [
+    # ---- calculator_app: math and logic ----
     BenchmarkTestCase(
         case_id="case_calc_01",
         repo_name="calculator_app",
@@ -12,11 +22,6 @@ BENCHMARK_SUITE_15: List[BenchmarkTestCase] = [
         failing_test_name="test_calculate_discount",
         bug_category="logic_error",
         expected_root_cause_symbol="calculate_discount",
-        pytest_log="""
-File "calculator.py", line 8, in calculate_discount
-    return price - discount_percent
-FAILED test_calculator.py::test_calculate_discount - AssertionError: assert 80.0 == 80.0
-""",
     ),
     BenchmarkTestCase(
         case_id="case_calc_02",
@@ -25,15 +30,8 @@ FAILED test_calculator.py::test_calculate_discount - AssertionError: assert 80.0
         failing_test_name="test_divide_numbers_zero",
         bug_category="zero_division",
         expected_root_cause_symbol="divide_numbers",
-        pytest_log="""
-File "calculator.py", line 14, in divide_numbers
-    return a / b
-ZeroDivisionError: division by zero
-FAILED test_calculator.py::test_divide_numbers_zero - ZeroDivisionError: division by zero
-""",
     ),
-
-    # Ecommerce API Cases (Type & Validation Errors)
+    # ---- ecommerce_api: type and validation ----
     BenchmarkTestCase(
         case_id="case_ecom_01",
         repo_name="ecommerce_api",
@@ -41,28 +39,8 @@ FAILED test_calculator.py::test_divide_numbers_zero - ZeroDivisionError: divisio
         failing_test_name="test_calculate_order_total",
         bug_category="type_error",
         expected_root_cause_symbol="calculate_order_total",
-        pytest_log="""
-File "order_service.py", line 8, in calculate_order_total
-    subtotal += item.price
-AttributeError: 'dict' object has no attribute 'price'
-FAILED test_order_service.py::test_calculate_order_total - AttributeError: 'dict' object has no attribute 'price'
-""",
     ),
-    BenchmarkTestCase(
-        case_id="case_ecom_02",
-        repo_name="ecommerce_api",
-        target_rel_path="order_service.py",
-        failing_test_name="test_validate_user_auth",
-        bug_category="validation_error",
-        expected_root_cause_symbol="validate_user_auth",
-        pytest_log="""
-File "order_service.py", line 14, in validate_user_auth
-    return token.startswith("Bearer_")
-FAILED test_order_service.py::test_validate_user_auth - AssertionError: assert False is True
-""",
-    ),
-
-    # Data Processor Cases (Off-by-One & Null Reference Errors)
+    # ---- data_processor: boundaries and null handling ----
     BenchmarkTestCase(
         case_id="case_data_01",
         repo_name="data_processor",
@@ -70,11 +48,6 @@ FAILED test_order_service.py::test_validate_user_auth - AssertionError: assert F
         failing_test_name="test_compute_average",
         bug_category="off_by_one",
         expected_root_cause_symbol="compute_average",
-        pytest_log="""
-File "pipeline.py", line 10, in compute_average
-    return total / len(scores)
-FAILED test_pipeline.py::test_compute_average - AssertionError: assert 10.0 == 20.0
-""",
     ),
     BenchmarkTestCase(
         case_id="case_data_02",
@@ -83,11 +56,23 @@ FAILED test_pipeline.py::test_compute_average - AssertionError: assert 10.0 == 2
         failing_test_name="test_parse_user_record_null_safe",
         bug_category="null_reference",
         expected_root_cause_symbol="parse_user_record",
-        pytest_log="""
-File "pipeline.py", line 18, in parse_user_record
-    return profile["name"].title()
-TypeError: 'NoneType' object is not subscriptable
-FAILED test_pipeline.py::test_parse_user_record_null_safe - TypeError: 'NoneType' object is not subscriptable
-""",
+    ),
+    # ---- enterprise_app: multi-module, >1k LOC ----
+    BenchmarkTestCase(
+        case_id="case_ent_01",
+        repo_name="enterprise_app",
+        target_rel_path="billing/calculator.py",
+        failing_test_name="test_billing_tiered_discount_calculation",
+        bug_category="logic_error",
+        expected_root_cause_symbol="calculate_tiered_discount",
+    ),
+    # ---- ts_cart_app: JavaScript, verified with Vitest ----
+    BenchmarkTestCase(
+        case_id="case_ts_01",
+        repo_name="ts_cart_app",
+        target_rel_path="src/cart.js",
+        failing_test_name="applies a percentage discount",
+        bug_category="logic_error",
+        expected_root_cause_symbol="applyDiscount",
     ),
 ]
