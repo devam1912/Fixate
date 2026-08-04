@@ -67,7 +67,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Healthcheck for orchestration readiness
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
+  CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
 
 # Launch production server running backend API and serving frontend SPA
-CMD ["uvicorn", "fixate.api.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn fixate.api.server:app --host 0.0.0.0 --port ${PORT:-8000}"]
