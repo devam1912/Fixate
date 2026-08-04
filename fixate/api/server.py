@@ -2,6 +2,7 @@
 
 import os
 import logging
+import mimetypes
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -10,6 +11,12 @@ from fastapi.responses import FileResponse
 from fixate.api.routes import router as api_router
 from fixate.api.websocket import router as stream_router
 from fixate.paths import DASHBOARD_DIR
+
+# Ensure web MIME types are correctly registered across all operating systems
+mimetypes.init()
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("image/svg+xml", ".svg")
 
 logger = logging.getLogger(__name__)
 
@@ -56,5 +63,17 @@ if os.path.exists(static_dir):
 
         file_path = os.path.join(static_dir, full_path)
         if os.path.exists(file_path) and os.path.isfile(file_path):
-            return FileResponse(file_path)
+            media_type, _ = mimetypes.guess_type(file_path)
+            return FileResponse(file_path, media_type=media_type)
+
+        # Do not fall back to index.html for missing static assets (.css, .js, .svg, etc.)
+        # Returning HTML for a missing stylesheet causes browser MIME type mismatch errors
+        STATIC_EXTENSIONS = (
+            ".css", ".js", ".png", ".jpg", ".jpeg", ".gif",
+            ".svg", ".ico", ".json", ".map", ".woff", ".woff2", ".ttf"
+        )
+        if any(full_path.endswith(ext) for ext in STATIC_EXTENSIONS):
+            raise HTTPException(status_code=404, detail=f"Static asset not found: /{full_path}")
+
         return FileResponse(os.path.join(static_dir, "index.html"))
+

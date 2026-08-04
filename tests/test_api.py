@@ -203,3 +203,10 @@ def test_failure_log_is_captured_with_the_interpreter_that_owns_dependencies(tmp
     assert captured["command"][0] == venv_python, (
         "the suite must run with the interpreter holding the repo's dependencies"
     )
+
+
+def test_missing_static_css_returns_404_not_index_html():
+    """Missing CSS files should return 404, not fallback index.html which triggers MIME errors."""
+    response = client.get("/nonexistent_style.css")
+    assert response.status_code == 404
+
