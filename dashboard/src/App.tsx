@@ -230,60 +230,14 @@ export function App() {
           </div>
         )}
 
-        {/* Dynamic Input Control Card */}
-        <div className="glass-card p-6 rounded-2xl border border-zinc-800 mb-8">
-          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 pb-5 border-b border-zinc-800">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white">
-                <Sparkles className="w-5 h-5 text-emerald-400" />
-              </div>
-        )}
-              <div>
-                <h2 className="text-sm font-mono font-bold uppercase tracking-wider text-white flex items-center gap-2">
-                  Repository Self-Healing Trigger
-                </h2>
-                <p className="text-xs text-zinc-500 mt-0.5 font-mono">
-                  Clone any Python GitHub repository URL, specify local folder path, or use built-in benchmarks
-                </p>
-              </div>
-            </div>
-
-            {/* Mode Switcher */}
-            <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
-              <button
-                onClick={() => setMode('github')}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${
-                  mode === 'github'
-                    ? 'bg-zinc-800 text-white border border-zinc-700'
-                    : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                <Github className="w-3.5 h-3.5" />
-                GitHub Repo URL
-              </button>
-              <button
-                onClick={() => setMode('sample')}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${
-                  mode === 'sample'
-                    ? 'bg-zinc-800 text-white border border-zinc-700'
-                    : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                Sample Benchmarks
-              </button>
-              <button
-                onClick={() => setMode('local')}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-mono font-medium transition-all ${
-                  mode === 'local'
-                    ? 'bg-zinc-800 text-white border border-zinc-700'
-                    : 'text-zinc-400 hover:text-white'
-                }`}
-              >
-                <FolderCog className="w-3.5 h-3.5" />
-                Local Folder Path
-              </button>
-            </div>
+        {prMessage && (
+          <div className="mb-5 p-4 rounded-lg bg-emerald-950/60 border border-emerald-700/70 text-emerald-100 text-sm flex items-center gap-3">
+            <GitPullRequest className="w-5 h-5 text-emerald-300" />
+            <a href={prMessage.split(': ').slice(1).join(': ')} target="_blank" rel="noreferrer" className="hover:underline">
+              {prMessage}
+            </a>
           </div>
+        )}
 
         {activeTab === 'workbench' && (
           <div className="space-y-6">
