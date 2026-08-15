@@ -34,6 +34,23 @@ def test_codebase_graph_endpoint():
     assert isinstance(data["nodes"], list)
 
 
+def test_repository_scan_lists_parseable_failures(tmp_path):
+    (tmp_path / "calc.py").write_text(
+        "def add(a, b):\n    return a - b\n", encoding="utf-8"
+    )
+    (tmp_path / "test_calc.py").write_text(
+        "from calc import add\n\ndef test_add():\n    assert add(2, 2) == 4\n", encoding="utf-8"
+    )
+
+    response = client.post("/api/repository/scan", json={"repo_path": str(tmp_path), "repo_name": None})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total_failures"] == 1
+    assert body["failures"][0]["language"] == "python"
+    assert body["failures"][0]["test_name"] == "test_add"
+
+
 def test_trigger_incident_endpoint():
     response = client.post(
         "/api/incident/trigger",
@@ -209,4 +226,3 @@ def test_missing_static_css_returns_404_not_index_html():
     """Missing CSS files should return 404, not fallback index.html which triggers MIME errors."""
     response = client.get("/nonexistent_style.css")
     assert response.status_code == 404
-

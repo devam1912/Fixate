@@ -2,6 +2,8 @@
 
 > **Production-grade agentic AI system that detects failing builds/tests across Python and JavaScript/TypeScript repositories, localizes root causes via AST dependency graph analysis, generates minimal structured patches, and verifies fixes in isolated Docker sandboxes with bounded retries.**
 
+**Live app:** [https://fixate-jaab.onrender.com/](https://fixate-jaab.onrender.com/)
+
 ---
 
 ## Core Engineering Principle
@@ -33,7 +35,7 @@ flowchart TD
 ## Core Agent Modules
 
 ### 1. Codebase Graph Builder (`fixate/graph/`)
-- Parses target codebase AST symbols using an extensible `BaseLanguageParser` interface — `PythonASTParser` (stdlib `ast`) and `TypeScriptParser` (tree-sitter, pure-Python wheels, no Node required to parse).
+- Parses target codebase AST symbols using an extensible `BaseLanguageParser` interface — Python, JavaScript/TypeScript, and practical C++ parsers are supported.
 - Constructs a `networkx.DiGraph` connecting functions, classes, imports, and tests.
 - Provides backward/forward call graph traversal utilities for localization and targeted test selection.
 
@@ -58,7 +60,7 @@ flowchart TD
 - Enforces a hard cap of **3 verification attempts**, feeding each failure back to the model. If retries exhaust, generates an honest diagnostic failure report.
 
 ### 6. Language Toolchains & Diagnostic Gates (`fixate/languages/`)
-- One `LanguageToolchain` per supported language (Python, JavaScript/TypeScript), owning failure parsing, test-command construction, dependency installation, and environment setup.
+- One `LanguageToolchain` per supported language (Python, JavaScript/TypeScript, C++), owning failure parsing, test-command construction, dependency installation, and environment setup.
 - Incident routing is driven by the **failing log**, which names the runner that actually broke — this is what makes a mixed-language repository tractable: one repo, but one language per incident.
 - Repositories with **no runnable tests** fall back to diagnostic gates, tried most-conclusive first: `python-syntax` → `ruff` → `pyflakes`, or `js-syntax` → `tsc` → `eslint`. The selected gate becomes the verification oracle, so the same checker that found the problem must later agree it is gone — and the total diagnostic count must not grow.
 
@@ -146,7 +148,7 @@ Fixate/
 │   ├── errors.py       # Typed Pipeline Errors Carrying Stage & Remedy
 │   ├── paths.py        # Centralized Path Resolution
 │   └── sample_repos.py # Sample Repository Registry & Benchmark Fixtures
-├── dashboard/          # React + TypeScript + Tailwind CSS SRE Dashboard (Vite)
+├── dashboard/          # React + TypeScript + Tailwind CSS repair dashboard (Vite)
 ├── sample_repos/       # Target Repositories (calculator_app, ecommerce_api, data_processor,
 │                       #                      enterprise_app, ts_cart_app)
 ├── tests/              # Comprehensive Unit Test Suite (11 modules + shared fakes)

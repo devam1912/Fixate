@@ -8,7 +8,7 @@ import logging
 import uuid
 import subprocess
 from typing import Optional
-from typing import Dict
+from typing import Dict, List
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
@@ -21,6 +21,13 @@ from fixate.eval.harness import (
     save_scorecard,
 )
 from fixate.languages import registry
+from fixate.languages.base import TestSelection
+from fixate.localization.parser import FailureTracebackParser, ParsedFailure, _SECTION_BANNER
+from fixate.languages.javascript.failures import (
+    JavaScriptFailureParser,
+    _TEST_HEADER,
+    _VITEST_FAIL,
+)
 from fixate.telemetry.events import DISPATCHER
 from fixate.telemetry.logger import TelemetryLogger
 from fixate.eval.cases import BENCHMARK_SUITE
@@ -39,6 +46,8 @@ TELEMETRY.subscribe(DISPATCHER.broadcast_event)
 # final result once the run ends.
 INCIDENT_RESULTS: Dict[str, dict] = {}
 INCIDENT_ERRORS: Dict[str, str] = {}
+INCIDENT_CONTEXTS: Dict[str, dict] = {}
+REPOSITORY_SCANS: Dict[str, dict] = {}
 
 
 def build_engine() -> OrchestrationEngine:
@@ -83,6 +92,21 @@ class IncidentTriggerRequest(BaseModel):
     pytest_log: Optional[str] = None
     env_text: Optional[str] = None
     human_approval_required: bool = True
+    scan_id: Optional[str] = None
+    failure_id: Optional[str] = None
+
+
+class RepositoryScanRequest(BaseModel):
+    repo_name: Optional[str] = "calculator_app"
+    repo_url: Optional[str] = None
+    repo_path: Optional[str] = None
+    env_text: Optional[str] = None
+
+
+class PullRequestRequest(BaseModel):
+    title: Optional[str] = None
+    body: Optional[str] = None
+    base_branch: Optional[str] = None
 
 
 @router.get("/health")
@@ -149,6 +173,16 @@ def get_codebase_graph(repo_name: Optional[str] = "calculator_app", custom_path:
 
 def _resolve_target_path(req: "IncidentTriggerRequest") -> str:
     """Work out which directory this incident should run against."""
+    if req.scan_id and req.failure_id:
+        scan = REPOSITORY_SCANS.get(req.scan_id)
+        if not scan:
+            raise HTTPException(status_code=404, detail=f"No scan found for {req.scan_id}")
+        failure = next((f for f in scan["failures"] if f["failure_id"] == req.failure_id), None)
+        if not failure:
+            raise HTTPException(status_code=404, detail=f"No failure {req.failure_id} in scan {req.scan_id}")
+        req.pytest_log = failure["raw_log"]
+        return scan["repo_path"]
+
     if req.repo_url and req.repo_url.strip():
         target_path = clone_github_repo(req.repo_url)
     elif req.repo_path and os.path.exists(req.repo_path):
@@ -172,6 +206,25 @@ def _resolve_target_path(req: "IncidentTriggerRequest") -> str:
         )
 
     return target_path
+
+
+def _request_from_scan(req: RepositoryScanRequest) -> IncidentTriggerRequest:
+    return IncidentTriggerRequest(
+        repo_name=req.repo_name,
+        repo_url=req.repo_url,
+        repo_path=req.repo_path,
+        env_text=req.env_text,
+    )
+
+
+def _repo_url_for(req: IncidentTriggerRequest) -> Optional[str]:
+    if req.repo_url:
+        return req.repo_url
+    if req.scan_id:
+        scan = REPOSITORY_SCANS.get(req.scan_id)
+        if scan:
+            return scan.get("repo_url")
+    return None
 
 
 def _parse_env_text(env_text: Optional[str]) -> dict:
@@ -289,6 +342,170 @@ def _prepare_incident(req: IncidentTriggerRequest) -> tuple:
     return target_path, pytest_log, custom_env
 
 
+def _capture_for_toolchain(repo_dir: str, toolchain) -> tuple[str, str]:
+    """Prepare and run one language's suite, returning output and install detail."""
+    install = toolchain.install_dependencies(repo_dir)
+    if not install.succeeded:
+        return install.detail, install.detail
+
+    command = toolchain.test_command(repo_dir, TestSelection())
+    if command and command[0] in ("python", "python3"):
+        command = [install.executable or sys.executable] + command[1:]
+
+    env = {**os.environ, **toolchain.environment(repo_dir)}
+    try:
+        result = subprocess.run(
+            command,
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env=env,
+            shell=(os.name == "nt" and command[0] in {"npm", "npx"}),
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        return str(exc), install.detail
+
+    return f"{result.stdout}\n{result.stderr}".strip(), install.detail
+
+
+def _split_pytest_failures(log: str) -> List[str]:
+    lines = (log or "").splitlines()
+    banners = [(idx, _SECTION_BANNER.match(line.strip())) for idx, line in enumerate(lines)]
+    starts = [(idx, match.group("test")) for idx, match in banners if match]
+    if not starts:
+        return [log] if log.strip() else []
+
+    sections: List[str] = []
+    for pos, (start, _name) in enumerate(starts):
+        end = starts[pos + 1][0] if pos + 1 < len(starts) else len(lines)
+        sections.append("\n".join(lines[start:end]))
+    return sections
+
+
+def _split_js_failures(log: str) -> List[str]:
+    lines = (log or "").splitlines()
+    starts: List[int] = []
+    for index, line in enumerate(lines):
+        vitest = _VITEST_FAIL.match(line)
+        header = _TEST_HEADER.match(line)
+        if vitest or (header and JavaScriptFailureParser._is_summary_bullet(header.group("name")) is False):
+            starts.append(index)
+    if not starts:
+        return [log] if log.strip() else []
+
+    sections: List[str] = []
+    for pos, start in enumerate(starts):
+        end = starts[pos + 1] if pos + 1 < len(starts) else len(lines)
+        sections.append("\n".join(lines[start:end]))
+    return sections
+
+
+def _failure_sections_for(toolchain, log: str) -> List[str]:
+    if toolchain.name == "python":
+        return _split_pytest_failures(log)
+    if toolchain.name == "javascript":
+        return _split_js_failures(log)
+    return [log] if log.strip() else []
+
+
+def _summarize_failure(failure: ParsedFailure, language: str, raw_log: str, index: int) -> dict:
+    return {
+        "failure_id": f"{language}-{index + 1}",
+        "language": language,
+        "test_name": failure.test_name,
+        "exception_type": failure.exception_type,
+        "exception_message": failure.exception_message,
+        "failing_file": failure.failing_file,
+        "failing_line": failure.failing_line,
+        "raw_log": raw_log,
+    }
+
+
+@router.post("/repository/scan")
+def scan_repository(req: RepositoryScanRequest):
+    """Run every detected language's suite and return all parseable failures."""
+    incident_req = _request_from_scan(req)
+    repo_path = _resolve_target_path(incident_req)
+    custom_env = _parse_env_text(req.env_text)
+
+    if custom_env:
+        env_path = os.path.join(repo_path, ".env")
+        with open(env_path, "w", encoding="utf-8") as handle:
+            for key, value in custom_env.items():
+                handle.write(f"{key}={value}\n")
+
+    toolchains = registry.for_repo(repo_path)
+    if not toolchains:
+        raise HTTPException(status_code=400, detail="No supported language detected.")
+
+    scan_id = f"scan_{uuid.uuid4().hex[:8]}"
+    languages: List[dict] = []
+    failures: List[dict] = []
+
+    for toolchain in toolchains:
+        language_report = {
+            "language": toolchain.name,
+            "status": "not_run",
+            "install_detail": "",
+            "failure_count": 0,
+            "log_excerpt": "",
+        }
+
+        if not toolchain.has_test_setup(repo_path):
+            language_report.update(
+                {
+                    "status": "no_tests",
+                    "install_detail": "No runnable test setup detected for this language.",
+                }
+            )
+            languages.append(language_report)
+            continue
+
+        output, detail = _capture_for_toolchain(repo_path, toolchain)
+        language_report["install_detail"] = detail
+        language_report["log_excerpt"] = output[:1200]
+
+        if not output.strip():
+            language_report["status"] = "no_output"
+            languages.append(language_report)
+            continue
+
+        if toolchain.collected_nothing(output):
+            language_report["status"] = "no_tests"
+            languages.append(language_report)
+            continue
+
+        if not toolchain.owns_log(output):
+            language_report["status"] = "passed"
+            languages.append(language_report)
+            continue
+
+        parsed_count = 0
+        for section in _failure_sections_for(toolchain, output):
+            try:
+                failure = toolchain.parse_failure(section)
+            except Exception:
+                continue
+            failures.append(_summarize_failure(failure, toolchain.name, section, parsed_count))
+            parsed_count += 1
+
+        language_report["failure_count"] = parsed_count
+        language_report["status"] = "failed" if parsed_count else "unparsed_failure"
+        languages.append(language_report)
+
+    payload = {
+        "scan_id": scan_id,
+        "repo_path": repo_path,
+        "repo_url": req.repo_url,
+        "languages": languages,
+        "failures": failures,
+        "total_failures": len(failures),
+    }
+    REPOSITORY_SCANS[scan_id] = payload
+    return payload
+
+
 @router.post("/incident/trigger")
 def trigger_incident(req: IncidentTriggerRequest):
     """Run a self-healing incident and return its terminal summary.
@@ -306,6 +523,11 @@ def trigger_incident(req: IncidentTriggerRequest):
     )
 
     INCIDENT_RESULTS[summary.incident_id] = summary.model_dump()
+    INCIDENT_CONTEXTS[summary.incident_id] = {
+        "repo_path": target_path,
+        "repo_url": _repo_url_for(req),
+        "request": req.model_dump(),
+    }
     return summary
 
 
@@ -352,6 +574,11 @@ def start_incident(req: IncidentTriggerRequest, background: BackgroundTasks):
                 incident_id=incident_id,
             )
             INCIDENT_RESULTS[incident_id] = summary.model_dump()
+            INCIDENT_CONTEXTS[incident_id] = {
+                "repo_path": target_path,
+                "repo_url": _repo_url_for(req),
+                "request": req.model_dump(),
+            }
         except HTTPException as exc:
             # Preparation failures carry an operator-facing explanation; surface it
             # rather than a bare exception string.
@@ -375,6 +602,113 @@ def get_incident(incident_id: str):
     if incident_id in INCIDENT_ERRORS:
         return {"status": "error", "detail": INCIDENT_ERRORS[incident_id]}
     return {"status": "running"}
+
+
+def _parse_github_slug(repo_url: str) -> tuple[str, str]:
+    cleaned = repo_url.strip().removesuffix(".git")
+    match = re.search(r"github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/]+)$", cleaned)
+    if not match and "/" in cleaned and not cleaned.startswith("http"):
+        owner, repo = cleaned.split("/", 1)
+        return owner, repo
+    if not match:
+        raise HTTPException(status_code=400, detail="Only GitHub repository URLs are supported for PR creation.")
+    return match.group("owner"), match.group("repo")
+
+
+def _git(repo_path: str, args: List[str], check: bool = True) -> subprocess.CompletedProcess:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if check and result.returncode != 0:
+        raise HTTPException(status_code=400, detail=(result.stderr or result.stdout or "git command failed")[:1000])
+    return result
+
+
+def _default_branch(repo_path: str) -> str:
+    result = _git(repo_path, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], check=False)
+    if result.returncode == 0 and "/" in result.stdout:
+        return result.stdout.strip().split("/", 1)[1]
+    return "main"
+
+
+def _create_pull_request(owner: str, repo: str, branch: str, base: str, title: str, body: str) -> str:
+    token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+    if not token:
+        raise HTTPException(
+            status_code=400,
+            detail="PR creation needs GITHUB_TOKEN or GH_TOKEN configured on the server.",
+        )
+
+    import requests
+
+    response = requests.post(
+        f"https://api.github.com/repos/{owner}/{repo}/pulls",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+        json={"title": title, "head": branch, "base": base, "body": body},
+        timeout=30,
+    )
+    if response.status_code not in (200, 201):
+        raise HTTPException(status_code=400, detail=f"GitHub PR creation failed: {response.text[:1000]}")
+    return response.json()["html_url"]
+
+
+@router.post("/incident/{incident_id}/pull-request")
+def create_pull_request_for_incident(incident_id: str, req: PullRequestRequest):
+    """Push the verified patch branch and open a pull request."""
+    summary = INCIDENT_RESULTS.get(incident_id)
+    context = INCIDENT_CONTEXTS.get(incident_id)
+    if not summary or not context:
+        raise HTTPException(status_code=404, detail=f"No completed incident found for {incident_id}")
+    if summary.get("state") not in ("COMPLETED", "PENDING_APPROVAL"):
+        raise HTTPException(status_code=400, detail="Only verified incidents can be pushed.")
+    patch = summary.get("verified_patch")
+    if not patch:
+        raise HTTPException(status_code=400, detail="This incident has no verified patch to push.")
+
+    repo_url = context.get("repo_url")
+    if not repo_url:
+        raise HTTPException(status_code=400, detail="This incident was not started from a GitHub URL.")
+
+    repo_path = context["repo_path"]
+    owner, repo = _parse_github_slug(repo_url)
+    target_file = patch["target_file"].replace("\\", "/")
+    branch = f"fixate/{incident_id}-{os.path.basename(target_file).split('.')[0]}"
+    title = req.title or f"Fixate: repair {summary.get('failing_test') or target_file}"
+    body = req.body or (
+        f"Verified by Fixate incident `{incident_id}`.\n\n"
+        f"- Failing test: `{summary.get('failing_test')}`\n"
+        f"- Suspect: `{summary.get('suspect_function')}`\n"
+        f"- Proof: {summary.get('verified_by') or 'verified test pass'}\n"
+        f"- Risk: {(summary.get('risk_assessment') or {}).get('risk_level', 'unknown')}\n"
+    )
+    base = req.base_branch or _default_branch(repo_path)
+
+    token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+    if not token:
+        raise HTTPException(status_code=400, detail="Set GITHUB_TOKEN or GH_TOKEN before creating PRs.")
+
+    _git(repo_path, ["config", "user.name", "Fixate Bot"])
+    _git(repo_path, ["config", "user.email", "fixate-bot@example.invalid"])
+    _git(repo_path, ["checkout", "-B", branch])
+    _git(repo_path, ["add", target_file])
+    diff = _git(repo_path, ["diff", "--cached", "--quiet"], check=False)
+    if diff.returncode == 0:
+        raise HTTPException(status_code=400, detail="No file changes are staged for this incident.")
+    _git(repo_path, ["commit", "-m", title])
+
+    push_url = f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
+    _git(repo_path, ["push", push_url, f"HEAD:{branch}"])
+    pr_url = _create_pull_request(owner, repo, branch, base, title, body)
+    summary["pull_request"] = {"url": pr_url, "branch": branch, "base": base}
+    return summary["pull_request"]
 
 
 @router.get("/eval")

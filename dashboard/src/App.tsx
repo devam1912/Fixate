@@ -1,55 +1,116 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  Bot,
+  CheckCircle2,
+  Code2,
+  FolderCog,
+  GitPullRequest,
+  Github,
+  KeyRound,
+  Loader2,
+  Play,
+  Radio,
+  ScanSearch,
+  ShieldCheck,
+  Sparkles,
+  TerminalSquare,
+} from 'lucide-react';
 import { Navbar } from './components/Navbar';
 import { PipelineFlow } from './components/PipelineFlow';
 import { DiffViewer } from './components/DiffViewer';
 import { GraphViewer } from './components/GraphViewer';
 import { IncidentHistory } from './components/IncidentHistory';
 import { EvalCharts } from './components/EvalCharts';
-import { IncidentSummary } from './types';
-import { Github, FolderCog, Sparkles, Play, Code2, AlertTriangle, KeyRound } from 'lucide-react';
+import { IncidentSummary, RepositoryFailure, RepositoryScan } from './types';
+
+type Tab = 'workbench' | 'live' | 'history' | 'graph' | 'eval';
+type Mode = 'github' | 'sample' | 'local';
+
+const sampleRepos = [
+  { id: 'enterprise_app', title: 'Enterprise suite', note: 'Python services, 5 known defects' },
+  { id: 'calculator_app', title: 'Calculator API', note: 'Small pytest logic bug' },
+  { id: 'ecommerce_api', title: 'Ecommerce API', note: 'Validation and schema failures' },
+  { id: 'data_processor', title: 'Data pipeline', note: 'Boundary and null handling' },
+  { id: 'ts_cart_app', title: 'TS cart app', note: 'Vitest TypeScript repair path' },
+];
+
+const languageColor: Record<string, string> = {
+  python: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/25',
+  javascript: 'text-cyan-300 bg-cyan-500/10 border-cyan-500/25',
+  cpp: 'text-amber-300 bg-amber-500/10 border-amber-500/25',
+};
+
+function statusLabel(status: string) {
+  if (status === 'failed') return 'Needs attention';
+  if (status === 'passed') return 'Clean';
+  if (status === 'no_tests') return 'No tests';
+  if (status === 'unparsed_failure') return 'Unparsed failure';
+  return status.replace(/_/g, ' ');
+}
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'live' | 'history' | 'graph' | 'eval'>('live');
+  const [activeTab, setActiveTab] = useState<Tab>('workbench');
+  const [mode, setMode] = useState<Mode>('github');
+  const [selectedRepo, setSelectedRepo] = useState('enterprise_app');
+  const [githubUrl, setGithubUrl] = useState('');
+  const [customRepoPath, setCustomRepoPath] = useState('');
+  const [customEnvText, setCustomEnvText] = useState('');
+  const [scan, setScan] = useState<RepositoryScan | null>(null);
+  const [selectedFailureId, setSelectedFailureId] = useState<string | null>(null);
   const [incidentSummary, setIncidentSummary] = useState<IncidentSummary | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [mode, setMode] = useState<'github' | 'sample' | 'local'>('github');
-  const [selectedRepo, setSelectedRepo] = useState<string>('enterprise_app');
-  const [githubUrl, setGithubUrl] = useState<string>('');
-  const [customRepoPath, setCustomRepoPath] = useState<string>('');
-  const [customPytestLog, setCustomPytestLog] = useState<string>('');
-  const [customEnvText, setCustomEnvText] = useState<string>('');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [isFixing, setIsFixing] = useState(false);
+  const [isCreatingPr, setIsCreatingPr] = useState(false);
   const [liveState, setLiveState] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [prMessage, setPrMessage] = useState<string | null>(null);
 
-  const handleTriggerIncident = async () => {
-    setIsLoading(true);
+  const selectedFailure = useMemo(
+    () => scan?.failures.find((failure) => failure.failure_id === selectedFailureId) || scan?.failures[0] || null,
+    [scan, selectedFailureId]
+  );
+
+  const groupedFailures = useMemo(() => {
+    const groups: Record<string, RepositoryFailure[]> = {};
+    for (const failure of scan?.failures || []) {
+      groups[failure.language] = [...(groups[failure.language] || []), failure];
+    }
+    return groups;
+  }, [scan]);
+
+  const payloadForTarget = () => {
+    const base: any = { env_text: customEnvText.trim() || undefined };
+    if (mode === 'github') base.repo_url = githubUrl.trim();
+    else if (mode === 'local') base.repo_path = customRepoPath.trim();
+    else base.repo_name = selectedRepo;
+    return base;
+  };
+
+  const handleScanRepository = async () => {
+    setIsScanning(true);
     setErrorMessage(null);
+    setPrMessage(null);
     setIncidentSummary(null);
     setLiveState(null);
 
     try {
-      let payload: any = { human_approval_required: true };
-
-      if (mode === 'github') {
-        payload.repo_url = githubUrl.trim();
-        payload.pytest_log = customPytestLog.trim() || undefined;
-        payload.env_text = customEnvText.trim() || undefined;
-      } else if (mode === 'local') {
-        payload.repo_path = customRepoPath.trim();
-        payload.pytest_log = customPytestLog.trim() || undefined;
-        payload.env_text = customEnvText.trim() || undefined;
-      } else {
-        payload.repo_name = selectedRepo;
-      }
-
-      // Start the run in the background so we get an id up front, then follow the
-      // telemetry stream. Without this the UI could only redraw once the whole
-      // pipeline had already finished.
-      const startRes = await fetch('/api/incident/start', {
+      const response = await fetch('/api/repository/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payloadForTarget()),
       });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || 'Scan failed');
+      setScan(body as RepositoryScan);
+      setSelectedFailureId(body.failures?.[0]?.failure_id || null);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Could not scan this repository.');
+    } finally {
+      setIsScanning(false);
+    }
+  };
 
       if (!startRes.ok) {
         const errorData = await startRes.json().catch(() => ({ detail: 'Failed to start incident pipeline' }));
