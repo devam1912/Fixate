@@ -167,6 +167,37 @@ def test_background_start_captures_a_failure_log_like_the_sync_path(tmp_path):
     assert "test_add" in pytest_log
 
 
+def test_runtime_env_values_are_not_written_or_returned_raw(tmp_path):
+    from fixate.api.routes import IncidentTriggerRequest, _prepare_incident
+
+    (tmp_path / "app.py").write_text(
+        "import os\n\n"
+        "def exposed_secret():\n"
+        "    return os.environ['TEST_SECRET_TOKEN']\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "test_app.py").write_text(
+        "from app import exposed_secret\n\n"
+        "def test_secret_is_redacted():\n"
+        "    assert exposed_secret() == 'not-the-secret'\n",
+        encoding="utf-8",
+    )
+
+    _repo_path, pytest_log, custom_env = _prepare_incident(
+        IncidentTriggerRequest(
+            repo_path=str(tmp_path),
+            repo_name=None,
+            env_text="TEST_SECRET_TOKEN=super-secret-value",
+        )
+    )
+
+    assert custom_env["TEST_SECRET_TOKEN"] == "super-secret-value"
+    assert not (tmp_path / ".env").exists()
+    assert not (tmp_path / ".streamlit" / "secrets.toml").exists()
+    assert "super-secret-value" not in pytest_log
+    assert "<redacted:TEST_SECRET_TOKEN>" in pytest_log
+
+
 def test_background_start_reports_preparation_errors(monkeypatch):
     """A run that dies before the pipeline must still reach the subscriber."""
     import fixate.api.routes as routes

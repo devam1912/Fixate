@@ -218,7 +218,7 @@ export function App() {
     <div className="min-h-screen bg-black text-zinc-100 flex flex-col selection:bg-emerald-500/30 selection:text-white">
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-7">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-5 sm:py-7">
         {errorMessage && (
           <div className="mb-5 p-4 rounded-lg bg-rose-950/70 border border-rose-800/80 text-rose-100 text-sm flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-rose-300 shrink-0 mt-0.5" />
@@ -248,21 +248,21 @@ export function App() {
                 <div className="trace trace-b" />
                 <div className="trace trace-c" />
               </div>
-              <div className="relative z-10 grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-6 p-6">
+              <div className="relative z-10 grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-5 sm:gap-6 p-4 sm:p-6">
                 <div className="space-y-5">
                   <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-[11px] text-emerald-200">
                     <Radio className="w-3.5 h-3.5" />
                     Multi-language incident workbench
                   </div>
                   <div>
-                    <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white max-w-2xl">
+                    <h2 className="text-2xl sm:text-4xl font-semibold tracking-tight text-white max-w-2xl">
                       Scan the repo, pick the failure, ship a verified fix.
                     </h2>
                     <p className="text-sm text-zinc-400 mt-3 max-w-xl leading-relaxed">
                       Python, TypeScript/JavaScript, and practical C++ paths are grouped into one triage view. Fixate repairs one incident at a time, then can open a PR after proof.
                     </p>
                   </div>
-                  <div className="grid grid-cols-3 gap-3 max-w-xl">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-xl">
                     {[
                       ['Python', 'pytest'],
                       ['C++', 'CMake / Make'],
@@ -276,7 +276,7 @@ export function App() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-zinc-800 bg-black/70 p-4 shadow-2xl">
+                <div className="rounded-lg border border-zinc-800 bg-black/70 p-4 shadow-2xl min-w-0">
                   <div className="flex items-center justify-between mb-4">
                     <div>
                       <div className="text-sm font-semibold text-white">Repository target</div>
@@ -296,12 +296,12 @@ export function App() {
                         <button
                           key={key as string}
                           onClick={() => setMode(key as Mode)}
-                          className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-2 text-xs transition ${
+                          className={`flex min-w-0 items-center justify-center gap-1.5 rounded-md px-2 py-2 text-xs transition ${
                             mode === key ? 'bg-zinc-800 text-white' : 'text-zinc-500 hover:text-zinc-200'
                           }`}
                         >
                           <TypedIcon className="w-3.5 h-3.5" />
-                          {label as string}
+                          <span className="truncate">{label as string}</span>
                         </button>
                       );
                     })}
@@ -312,7 +312,7 @@ export function App() {
                       value={githubUrl}
                       onChange={(event) => setGithubUrl(event.target.value)}
                       placeholder="https://github.com/owner/repo or owner/repo"
-                      className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/60"
+                      className="w-full min-w-0 rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/60"
                     />
                   )}
 
@@ -340,22 +340,25 @@ export function App() {
                       value={customRepoPath}
                       onChange={(event) => setCustomRepoPath(event.target.value)}
                       placeholder="C:\\Users\\Admin\\Desktop\\Projects\\Fixate\\sample_repos\\enterprise_app"
-                      className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/60"
+                      className="w-full min-w-0 rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/60"
                     />
                   )}
 
                   <div className="mt-3">
                     <label className="text-[11px] text-zinc-500 flex items-center gap-1.5 mb-1.5">
                       <KeyRound className="w-3.5 h-3.5 text-zinc-500" />
-                      Optional environment values
+                      Optional runtime variables
                     </label>
                     <textarea
                       rows={3}
                       value={customEnvText}
                       onChange={(event) => setCustomEnvText(event.target.value)}
-                      placeholder={'API_KEY=...\nDATABASE_URL=...'}
-                      className="w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs font-mono text-white outline-none focus:border-emerald-500/60"
+                      placeholder={'TEST_API_KEY=...\nDATABASE_URL=...'}
+                      className="w-full min-w-0 rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-xs font-mono text-white outline-none focus:border-emerald-500/60"
                     />
+                    <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                      Values are injected only for the run and redacted from saved logs.
+                    </p>
                   </div>
 
                   <button

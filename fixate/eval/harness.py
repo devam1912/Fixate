@@ -7,7 +7,7 @@ import os
 import json
 import time
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from fixate.eval.metrics import EvalScorecard, CaseMetricResult
@@ -33,7 +33,11 @@ class BenchmarkTestCase(BaseModel):
     pytest_log: Optional[str] = None
 
 
-def capture_failure_log(workspace_dir: str, executable: Optional[str] = None) -> str:
+def capture_failure_log(
+    workspace_dir: str,
+    executable: Optional[str] = None,
+    custom_env: Optional[Dict[str, str]] = None,
+) -> str:
     """Run a repository's own test suite and return the output verbatim.
 
     ``executable`` is the interpreter that owns the repository's dependencies.
@@ -54,6 +58,8 @@ def capture_failure_log(workspace_dir: str, executable: Optional[str] = None) ->
         command = [executable or sys.executable] + command[1:]
 
     env = {**os.environ, **toolchain.environment(workspace_dir)}
+    if custom_env:
+        env.update(custom_env)
     try:
         result = subprocess.run(
             command, cwd=workspace_dir, capture_output=True, text=True, timeout=300, env=env

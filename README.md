@@ -98,6 +98,10 @@ pip install -e .
 cp .env.example .env
 # Set GEMINI_API_KEY for Google Gemini 2.5 Flash Free Tier
 ```
+The dashboard's optional runtime variables are injected into the current scan or
+repair run only. Fixate does not write pasted values into the cloned repository's
+`.env` file, redacts those values from captured logs before they reach the UI or
+LLM prompt, and stores incident request metadata with `env_text` removed.
 
 ### 3. Running Unit Test Suite
 ```bash

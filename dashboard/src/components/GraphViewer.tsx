@@ -160,27 +160,27 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
   const selectedOutgoing = selectedNode ? edges.filter((edge) => edge.source === selectedNode.id).length : 0;
 
   return (
-    <div className="space-y-6 my-6">
+    <div className="space-y-6 my-4 sm:my-6 min-w-0">
       {/* Target Repository Selector Toolbar */}
-      <div className="glass-card p-4 rounded-2xl border border-zinc-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="glass-card p-4 rounded-lg border border-zinc-800 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 min-w-0">
+        <div className="flex items-center gap-3 min-w-0">
           <FolderGit2 className="w-5 h-5 text-emerald-400 shrink-0" />
-          <div>
+          <div className="min-w-0">
             <span className="text-xs font-mono font-bold text-white uppercase tracking-wider block">
               AST Target Codebase Repository
             </span>
-            <span className="text-[11px] text-zinc-400 font-mono">
+            <span className="text-[11px] text-zinc-400 font-mono block truncate max-w-full">
               Switch repository to parse dynamic AST nodes & call dependency edges
             </span>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto min-w-0">
           {['enterprise_app', 'calculator_app', 'ecommerce_api', 'data_processor'].map((repo) => (
             <button
               key={repo}
               onClick={() => handleSelectRepo(repo)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-mono transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-mono transition-all ${
                 activeTargetRepo === repo && !customPathInput
                   ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold'
                   : 'bg-zinc-950 text-zinc-400 border border-zinc-800 hover:text-white'
@@ -190,17 +190,17 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
             </button>
           ))}
 
-          <div className="flex items-center gap-1.5 flex-1 md:flex-initial">
+          <div className="flex items-center gap-1.5 flex-1 basis-full sm:basis-auto min-w-0">
             <input
               type="text"
               placeholder="Or custom GitHub URL / local path..."
               value={customPathInput}
               onChange={(e) => setCustomPathInput(e.target.value)}
-              className="bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-1 text-xs font-mono text-white focus:outline-none focus:border-zinc-500 w-48"
+              className="bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-zinc-500 w-full sm:w-72 min-w-0"
             />
             <button
               onClick={handleLoadCustomPath}
-              className="bg-zinc-800 hover:bg-zinc-700 text-white p-1.5 rounded-xl border border-zinc-700 transition-colors"
+              className="bg-zinc-800 hover:bg-zinc-700 text-white p-1.5 rounded-lg border border-zinc-700 transition-colors shrink-0"
               title="Parse custom repository AST"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
@@ -210,26 +210,26 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
       </div>
 
       {/* Main Graph Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 min-w-0">
         {/* Left 2 Cols: Interactive Graph Canvas & Controls */}
-        <div className="lg:col-span-2 glass-card p-6 rounded-3xl border border-zinc-800">
+        <div className="xl:col-span-2 glass-card p-4 sm:p-6 rounded-lg border border-zinc-800 min-w-0">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-zinc-800">
-            <div>
+            <div className="min-w-0">
               <h2 className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-2">
                 <GitBranch className="w-4 h-4 text-emerald-400" />
                 AST Dependency Topology ({nodes.length} Nodes, {edges.length} Call Edges)
               </h2>
-              <p className="text-xs text-zinc-400 font-sans mt-0.5 truncate max-w-md">
+              <p className="text-xs text-zinc-400 font-sans mt-0.5 truncate max-w-full sm:max-w-md">
                 Active codebase: <span className="text-emerald-300 font-mono font-semibold">{activeTargetLabel}</span>
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               {/* View Mode Switcher */}
-              <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800 mr-2">
+              <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-lg border border-zinc-800 sm:mr-2">
                 <button
                   onClick={() => setViewMode('visual')}
-                  className={`p-1.5 rounded-lg text-xs font-mono transition-all ${
+                  className={`p-1.5 rounded-md text-xs font-mono transition-all ${
                     viewMode === 'visual'
                       ? 'bg-zinc-800 text-white border border-zinc-700'
                       : 'text-zinc-400 hover:text-white'
@@ -240,7 +240,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
                 </button>
                 <button
                   onClick={() => setViewMode('grid')}
-                  className={`p-1.5 rounded-lg text-xs font-mono transition-all ${
+                  className={`p-1.5 rounded-md text-xs font-mono transition-all ${
                     viewMode === 'grid'
                       ? 'bg-zinc-800 text-white border border-zinc-700'
                       : 'text-zinc-400 hover:text-white'
@@ -254,7 +254,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
               {/* Filter Buttons */}
               <button
                 onClick={() => setFilterType('all')}
-                className={`px-3 py-1 rounded-xl text-xs font-mono transition-all ${
+                className={`px-3 py-1 rounded-lg text-xs font-mono transition-all ${
                   filterType === 'all'
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold'
                     : 'bg-zinc-900 text-zinc-400 hover:text-white'
@@ -264,7 +264,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
               </button>
               <button
                 onClick={() => setFilterType('functions')}
-                className={`px-3 py-1 rounded-xl text-xs font-mono transition-all ${
+                className={`px-3 py-1 rounded-lg text-xs font-mono transition-all ${
                   filterType === 'functions'
                     ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-semibold'
                     : 'bg-zinc-900 text-zinc-400 hover:text-white'
@@ -274,7 +274,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
               </button>
               <button
                 onClick={() => setFilterType('tests')}
-                className={`px-3 py-1 rounded-xl text-xs font-mono transition-all ${
+                className={`px-3 py-1 rounded-lg text-xs font-mono transition-all ${
                   filterType === 'tests'
                     ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30 font-semibold'
                     : 'bg-zinc-900 text-zinc-400 hover:text-white'
@@ -293,13 +293,13 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
               placeholder="Search AST symbols or file paths..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl pl-10 pr-4 py-2 text-xs font-mono text-white focus:outline-none focus:border-zinc-500"
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-10 pr-4 py-2 text-xs font-mono text-white focus:outline-none focus:border-zinc-500"
             />
           </div>
 
           {/* VISUAL SVG TOPOLOGY GRAPH */}
           {viewMode === 'visual' && (
-            <div className="relative bg-zinc-950/90 border border-zinc-800 rounded-2xl overflow-auto max-h-[560px]">
+            <div className="relative bg-zinc-950/90 border border-zinc-800 rounded-lg overflow-auto max-h-[560px]">
               {isLoading ? (
                 <div className="text-xs font-mono text-emerald-400 flex items-center justify-center gap-2 py-16">
                   <RefreshCw className="w-4 h-4 animate-spin" /> Parsing AST Directed Dependency Graph...
@@ -310,7 +310,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
                   <p>No symbols were found in {activeTargetLabel}. Try a repository with Python, JS/TS, or C++ source files.</p>
                 </div>
               ) : (
-                <svg viewBox={`0 0 ${GRAPH_WIDTH} ${canvasHeight}`} className="w-full h-auto min-h-[430px]">
+                <svg viewBox={`0 0 ${GRAPH_WIDTH} ${canvasHeight}`} className="w-[980px] max-w-none lg:w-full h-auto min-h-[430px]">
                   <defs>
                     <marker
                       id="arrowhead-dynamic"
@@ -457,7 +457,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
                       <button
                         key={node.id}
                         onClick={() => setSelectedNode(node)}
-                        className={`p-3.5 rounded-2xl border text-left transition-all duration-200 ${
+                        className={`p-3.5 rounded-lg border text-left transition-all duration-200 ${
                           isSelected
                             ? 'bg-zinc-900 border-emerald-500/50 text-white shadow-lg'
                             : node.is_test
@@ -481,7 +481,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
         </div>
 
         {/* Right Col: AST Symbol Inspector */}
-        <div className="glass-card p-6 rounded-3xl border border-zinc-800 flex flex-col justify-between">
+        <div className="glass-card p-4 sm:p-6 rounded-lg border border-zinc-800 flex flex-col justify-between min-w-0">
           <div>
             <h3 className="text-xs font-mono font-bold text-zinc-400 uppercase tracking-widest mb-4 flex items-center gap-2">
               <Layers className="w-4 h-4 text-emerald-400" />
@@ -492,31 +492,31 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
               <div className="space-y-4 font-mono">
                 <div>
                   <span className="text-[10px] text-zinc-500 uppercase tracking-wider block mb-1">Symbol Name</span>
-                  <div className="text-xs font-bold text-white bg-zinc-950 p-2.5 rounded-xl border border-zinc-800">
+                  <div className="text-xs font-bold text-white bg-zinc-950 p-2.5 rounded-lg border border-zinc-800 break-words">
                     {selectedNode.label}
                   </div>
                 </div>
 
                 <div>
                   <span className="text-[10px] text-zinc-500 uppercase tracking-wider block mb-1">Symbol Type</span>
-                  <div className="inline-block text-xs font-bold px-2.5 py-1 rounded-lg bg-zinc-900 text-emerald-300 border border-zinc-800 uppercase">
+                  <div className="inline-block text-xs font-bold px-2.5 py-1 rounded-md bg-zinc-900 text-emerald-300 border border-zinc-800 uppercase">
                     {nodeKindLabel(selectedNode)}
                   </div>
                 </div>
 
                 <div>
                   <span className="text-[10px] text-zinc-500 uppercase tracking-wider block mb-1">File Location</span>
-                  <div className="text-xs text-zinc-300 bg-zinc-950 p-2.5 rounded-xl border border-zinc-800 break-all leading-relaxed">
+                  <div className="text-xs text-zinc-300 bg-zinc-950 p-2.5 rounded-lg border border-zinc-800 break-all leading-relaxed">
                     {selectedNode.file_path}
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-2.5">
+                  <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2.5">
                     <span className="text-[10px] text-zinc-500 uppercase tracking-wider block">Calls out</span>
                     <span className="text-lg font-semibold text-white">{selectedOutgoing}</span>
                   </div>
-                  <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-2.5">
+                  <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2.5">
                     <span className="text-[10px] text-zinc-500 uppercase tracking-wider block">Called by</span>
                     <span className="text-lg font-semibold text-white">{selectedIncoming}</span>
                   </div>
@@ -525,7 +525,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
                 <div>
                   <span className="text-[10px] text-zinc-500 uppercase tracking-wider block mb-1">Classification</span>
                   <div
-                    className={`text-xs px-2.5 py-1.5 rounded-xl border ${
+                    className={`text-xs px-2.5 py-1.5 rounded-lg border ${
                       selectedNode.is_test
                         ? 'bg-purple-950/40 text-purple-300 border-purple-800/50'
                         : 'bg-emerald-950/40 text-emerald-300 border-emerald-800/50'

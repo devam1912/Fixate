@@ -235,8 +235,29 @@ def _parse_env_text(env_text: Optional[str]) -> dict:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        custom_env[key.strip()] = value.strip().strip('"').strip("'")
+        key = key.strip()
+        if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
+            raise HTTPException(status_code=400, detail=f"Invalid environment variable name: {key}")
+        custom_env[key] = value.strip().strip('"').strip("'")
     return custom_env
+
+
+def _redact_env_values(text: str, custom_env: Optional[dict]) -> str:
+    """Remove user-supplied secret values before logs reach parsing, UI, or LLM prompts."""
+    redacted = text or ""
+    for key, value in (custom_env or {}).items():
+        if not value or len(value) < 3:
+            continue
+        redacted = redacted.replace(value, f"<redacted:{key}>")
+    return redacted
+
+
+def _safe_request_context(req: IncidentTriggerRequest) -> dict:
+    """Persist request metadata without keeping pasted secret material."""
+    data = req.model_dump()
+    if data.get("env_text"):
+        data["env_text"] = "<redacted>"
+    return data
 
 
 def _prepare_incident(req: IncidentTriggerRequest) -> tuple:
@@ -251,21 +272,8 @@ def _prepare_incident(req: IncidentTriggerRequest) -> tuple:
     """
     target_path = _resolve_target_path(req)
     custom_env = _parse_env_text(req.env_text)
-
-    # Auto-generate .env and .streamlit/secrets.toml if env vars are provided
-    if custom_env and target_path:
-        env_path = os.path.join(target_path, ".env")
-        with open(env_path, "w", encoding="utf-8") as f:
-            for k, v in custom_env.items():
-                f.write(f"{k}={v}\n")
-        
-        streamlit_dir = os.path.join(target_path, ".streamlit")
-        os.makedirs(streamlit_dir, exist_ok=True)
-        secrets_path = os.path.join(streamlit_dir, "secrets.toml")
-        with open(secrets_path, "w", encoding="utf-8") as f:
-            for k, v in custom_env.items():
-                f.write(f'{k} = "{v}"\n')
-        logger.info(f"Generated .env and .streamlit/secrets.toml in {target_path}")
+    if custom_env:
+        logger.info("Using %d runtime-only environment override(s) for this incident.", len(custom_env))
 
     pytest_log = req.pytest_log
 
@@ -310,7 +318,11 @@ def _prepare_incident(req: IncidentTriggerRequest) -> tuple:
 
         # Run the suite with the interpreter that owns the freshly installed
         # dependencies, not the engine's own.
-        pytest_log = capture_failure_log(target_path, executable=install.executable)
+        pytest_log = capture_failure_log(
+            target_path,
+            executable=install.executable,
+            custom_env=custom_env,
+        )
 
         if not pytest_log.strip():
             raise HTTPException(
@@ -339,10 +351,10 @@ def _prepare_incident(req: IncidentTriggerRequest) -> tuple:
             ),
         )
 
-    return target_path, pytest_log, custom_env
+    return target_path, _redact_env_values(pytest_log, custom_env), custom_env
 
 
-def _capture_for_toolchain(repo_dir: str, toolchain) -> tuple[str, str]:
+def _capture_for_toolchain(repo_dir: str, toolchain, custom_env: Optional[dict] = None) -> tuple[str, str]:
     """Prepare and run one language's suite, returning output and install detail."""
     install = toolchain.install_dependencies(repo_dir)
     if not install.succeeded:
@@ -353,6 +365,8 @@ def _capture_for_toolchain(repo_dir: str, toolchain) -> tuple[str, str]:
         command = [install.executable or sys.executable] + command[1:]
 
     env = {**os.environ, **toolchain.environment(repo_dir)}
+    if custom_env:
+        env.update(custom_env)
     try:
         result = subprocess.run(
             command,
@@ -366,7 +380,7 @@ def _capture_for_toolchain(repo_dir: str, toolchain) -> tuple[str, str]:
     except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
         return str(exc), install.detail
 
-    return f"{result.stdout}\n{result.stderr}".strip(), install.detail
+    return _redact_env_values(f"{result.stdout}\n{result.stderr}".strip(), custom_env), install.detail
 
 
 def _split_pytest_failures(log: str) -> List[str]:
@@ -428,12 +442,8 @@ def scan_repository(req: RepositoryScanRequest):
     incident_req = _request_from_scan(req)
     repo_path = _resolve_target_path(incident_req)
     custom_env = _parse_env_text(req.env_text)
-
     if custom_env:
-        env_path = os.path.join(repo_path, ".env")
-        with open(env_path, "w", encoding="utf-8") as handle:
-            for key, value in custom_env.items():
-                handle.write(f"{key}={value}\n")
+        logger.info("Using %d runtime-only environment override(s) for repository scan.", len(custom_env))
 
     toolchains = registry.for_repo(repo_path)
     if not toolchains:
@@ -462,7 +472,7 @@ def scan_repository(req: RepositoryScanRequest):
             languages.append(language_report)
             continue
 
-        output, detail = _capture_for_toolchain(repo_path, toolchain)
+        output, detail = _capture_for_toolchain(repo_path, toolchain, custom_env)
         language_report["install_detail"] = detail
         language_report["log_excerpt"] = output[:1200]
 
@@ -526,7 +536,7 @@ def trigger_incident(req: IncidentTriggerRequest):
     INCIDENT_CONTEXTS[summary.incident_id] = {
         "repo_path": target_path,
         "repo_url": _repo_url_for(req),
-        "request": req.model_dump(),
+        "request": _safe_request_context(req),
     }
     return summary
 
@@ -577,7 +587,7 @@ def start_incident(req: IncidentTriggerRequest, background: BackgroundTasks):
             INCIDENT_CONTEXTS[incident_id] = {
                 "repo_path": target_path,
                 "repo_url": _repo_url_for(req),
-                "request": req.model_dump(),
+                "request": _safe_request_context(req),
             }
         except HTTPException as exc:
             # Preparation failures carry an operator-facing explanation; surface it
