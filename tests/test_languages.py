@@ -7,6 +7,7 @@ import pytest
 from fixate.errors import TracebackParseError
 from fixate.languages import registry
 from fixate.languages.base import TestSelection
+from fixate.languages.cpp import CppToolchain
 from fixate.languages.javascript import JavaScriptToolchain
 from fixate.languages.javascript.failures import strip_ansi
 from fixate.languages.python import PythonToolchain
@@ -56,6 +57,7 @@ FAILED test_tax.py::test_calculate_tax - ZeroDivisionError: division by zero
 
 def test_routes_files_to_the_owning_toolchain():
     assert registry.for_file("src/cart.ts").name == "javascript"
+    assert registry.for_file("src/math.cpp").name == "cpp"
     assert registry.for_file("components/Button.tsx").name == "javascript"
     assert registry.for_file("legacy/util.js").name == "javascript"
     assert registry.for_file("app/models.py").name == "python"
@@ -67,6 +69,7 @@ def test_routes_logs_by_the_runner_that_produced_them():
     assert registry.for_log(JEST_LOG).name == "javascript"
     assert registry.for_log(VITEST_LOG).name == "javascript"
     assert registry.for_log(PYTEST_LOG).name == "python"
+    assert registry.for_log("main.cpp:4:10: error: expected ';' after expression").name == "cpp"
     assert registry.for_log("") is None
 
 
@@ -212,6 +215,27 @@ def test_install_skips_repos_without_a_manifest(tmp_path):
     result = JavaScriptToolchain().install_dependencies(str(tmp_path))
     assert result.succeeded is True
     assert "No package.json" in result.detail
+
+
+# --------------------------------------------------------------------------
+# C++ toolchain
+# --------------------------------------------------------------------------
+
+
+def test_cpp_compiler_error_is_parseable():
+    failure = CppToolchain().parse_failure(
+        "src/main.cpp:12:5: error: use of undeclared identifier 'total'"
+    )
+
+    assert failure.test_name == "c++ build"
+    assert failure.exception_type == "CompilerError"
+    assert failure.failing_file == "src/main.cpp"
+    assert failure.failing_line == 12
+
+
+def test_cpp_cmake_project_counts_as_test_setup(tmp_path):
+    (tmp_path / "CMakeLists.txt").write_text("cmake_minimum_required(VERSION 3.20)\n", encoding="utf-8")
+    assert CppToolchain().has_test_setup(str(tmp_path)) is True
 
 
 def test_distinguishes_no_tests_from_failing_tests():

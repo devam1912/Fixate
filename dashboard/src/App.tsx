@@ -112,23 +112,38 @@ export function App() {
     }
   };
 
-      if (!startRes.ok) {
-        const errorData = await startRes.json().catch(() => ({ detail: 'Failed to start incident pipeline' }));
-        throw new Error(errorData.detail || `Server error: ${startRes.statusText}`);
-      }
+  const handleFixSelected = async () => {
+    if (!scan || !selectedFailure) return;
+    setIsFixing(true);
+    setErrorMessage(null);
+    setPrMessage(null);
+    setIncidentSummary(null);
+    setLiveState(null);
+    setActiveTab('live');
 
-      const { incident_id: incidentId } = await startRes.json();
-      const data = await followIncident(incidentId);
+    try {
+      const response = await fetch('/api/incident/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...payloadForTarget(),
+          pytest_log: selectedFailure.raw_log,
+          human_approval_required: true,
+          env_text: customEnvText.trim() || undefined,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || 'Could not start repair');
+      const data = await followIncident(body.incident_id);
       setIncidentSummary(data);
+      setActiveTab('workbench');
     } catch (err: any) {
-      console.error('Trigger Incident failed:', err);
-      setErrorMessage(err.message || 'An unexpected error occurred while executing self-healing pipeline.');
+      setErrorMessage(err.message || 'Repair failed.');
     } finally {
-      setIsLoading(false);
+      setIsFixing(false);
     }
   };
 
-  /** Follow an incident's telemetry stream, resolving with its terminal summary. */
   const followIncident = (incidentId: string): Promise<IncidentSummary> =>
     new Promise((resolve, reject) => {
       const source = new EventSource(`/api/stream/sse/${incidentId}`);
@@ -150,14 +165,11 @@ export function App() {
           const event = JSON.parse(evt.data);
           if (event.action === 'STATE_TRANSITION') setLiveState(event.output_summary);
         } catch {
-          /* a malformed frame should not abort the run */
+          /* ignore malformed frames */
         }
       });
 
       source.addEventListener('done', finish);
-
-      // If the stream drops, fall back to polling for the terminal summary rather
-      // than losing a run that is still progressing server-side.
       source.onerror = () => {
         source.close();
         const poll = setInterval(async () => {
@@ -174,36 +186,33 @@ export function App() {
       };
     });
 
-  const sampleRepos = [
-    {
-      id: 'enterprise_app',
-      title: 'enterprise_app (>1k LOC)',
-      bug: '5 Multi-Module Enterprise Defects',
-      type: 'Multi-Service Enterprise',
-      description: 'Complex enterprise codebase with 5 distinct auth, billing, inventory, analytics & notification bugs.',
-    },
-    {
-      id: 'calculator_app',
-      title: 'calculator_app',
-      bug: 'Discount Logic Bug',
-      type: 'Math / Logic',
-      description: 'Off-by-one percentage discount formula error in price engine.',
-    },
-    {
-      id: 'ecommerce_api',
-      title: 'ecommerce_api',
-      bug: 'Dict KeyError & Attribute Exception',
-      type: 'API Schema',
-      description: 'Missing dictionary attribute validation in order creation endpoint.',
-    },
-    {
-      id: 'data_processor',
-      title: 'data_processor',
-      bug: 'Off-by-One Loop & Null Reference',
-      type: 'Pipeline Data',
-      description: 'Index boundary overshoot and unhandled None value in record transformer.',
-    },
-  ];
+  const handleCreatePr = async () => {
+    if (!incidentSummary) return;
+    setIsCreatingPr(true);
+    setErrorMessage(null);
+    setPrMessage(null);
+
+    try {
+      const response = await fetch(`/api/incident/${incidentSummary.incident_id}/pull-request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || 'Could not create pull request');
+      setPrMessage(`Pull request opened: ${body.url}`);
+      setIncidentSummary({ ...incidentSummary, pull_request: body });
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Could not create pull request.');
+    } finally {
+      setIsCreatingPr(false);
+    }
+  };
+
+  const canScan =
+    (mode === 'github' && githubUrl.trim()) ||
+    (mode === 'local' && customRepoPath.trim()) ||
+    mode === 'sample';
 
   return (
     <div className="min-h-screen bg-black text-zinc-100 flex flex-col font-sans selection:bg-zinc-800 selection:text-white">

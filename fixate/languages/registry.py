@@ -10,6 +10,7 @@ import os
 from typing import List, Optional
 
 from fixate.languages.base import LanguageToolchain
+from fixate.languages.cpp import CppToolchain
 from fixate.languages.javascript import JavaScriptToolchain
 from fixate.languages.python import PythonToolchain
 
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 _TOOLCHAINS: List[LanguageToolchain] = [
     PythonToolchain(),
+    CppToolchain(),
     JavaScriptToolchain(),
 ]
 

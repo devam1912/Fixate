@@ -14,6 +14,7 @@ unqualified ids collapse same-named methods in the graph builder's id-keyed stor
 
 import logging
 import os
+import re
 from typing import Dict, List, Optional, Set, Tuple
 
 from fixate.graph.base_parser import BaseLanguageParser, CodeSymbol, SymbolType
@@ -26,6 +27,20 @@ _TEST_CALLEES = {"describe", "it", "test", "suite", "bench"}
 _FUNCTION_NODES = {"function_declaration", "generator_function_declaration", "function_expression"}
 _METHOD_NODES = {"method_definition"}
 _CLASS_NODES = {"class_declaration", "class"}
+_FALLBACK_FUNCTION = re.compile(
+    r"^\s*(?:export\s+)?(?:async\s+)?function\s+(?P<name>[A-Za-z_$][\w$]*)\s*\(",
+    re.M,
+)
+_FALLBACK_VAR_FUNCTION = re.compile(
+    r"^\s*(?:export\s+)?(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*=\s*"
+    r"(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>",
+    re.M,
+)
+_FALLBACK_TEST = re.compile(
+    r"\b(?:describe|it|test)\s*\(\s*['\"`](?P<name>[^'\"`]+)['\"`]",
+    re.M,
+)
+_FALLBACK_CALL = re.compile(r"\b([A-Za-z_$][\w$]*)\s*\(")
 
 
 class _Grammars:
@@ -107,7 +122,7 @@ class TypeScriptParser(BaseLanguageParser):
     def parse_code(self, code_string: str, file_path: str = "virtual.ts") -> List[CodeSymbol]:
         parser = _Grammars.get(os.path.splitext(file_path)[1].lower())
         if parser is None:
-            return []
+            return self._fallback_parse(code_string, file_path)
 
         source_bytes = code_string.encode("utf-8")
         try:
@@ -129,6 +144,57 @@ class TypeScriptParser(BaseLanguageParser):
             is_test_file=is_test_file,
             symbols=symbols,
         )
+        return symbols
+
+    def _fallback_parse(self, code_string: str, file_path: str) -> List[CodeSymbol]:
+        """Best-effort parser used when optional tree-sitter packages are absent."""
+        symbols: List[CodeSymbol] = []
+        imports: List[str] = []
+        is_test_file = self._is_test_file(file_path)
+
+        matches = [
+            (match.start(), match.group("name"), SymbolType.FUNCTION)
+            for match in _FALLBACK_FUNCTION.finditer(code_string)
+        ]
+        matches += [
+            (match.start(), match.group("name"), SymbolType.FUNCTION)
+            for match in _FALLBACK_VAR_FUNCTION.finditer(code_string)
+        ]
+        matches += [
+            (match.start(), match.group("name"), SymbolType.TEST)
+            for match in _FALLBACK_TEST.finditer(code_string)
+        ]
+        matches.sort(key=lambda item: item[0])
+
+        for index, (offset, name, symbol_type) in enumerate(matches):
+            end_offset = matches[index + 1][0] if index + 1 < len(matches) else len(code_string)
+            snippet = code_string[offset:end_offset].strip() or code_string
+            start_line = code_string[:offset].count("\n") + 1
+            end_line = start_line + snippet.count("\n")
+            calls = sorted(
+                {
+                    call
+                    for call in _FALLBACK_CALL.findall(snippet)
+                    if call not in {"function", "if", "for", "while", "switch", "return", "describe", "it", "test", "expect"}
+                }
+            )
+            is_test = is_test_file or symbol_type is SymbolType.TEST
+            symbols.append(
+                CodeSymbol(
+                    id=f"{file_path}::{name}",
+                    name=name,
+                    symbol_type=SymbolType.TEST if is_test else symbol_type,
+                    file_path=file_path,
+                    start_line=start_line,
+                    end_line=end_line,
+                    code=snippet,
+                    docstring=None,
+                    calls=calls,
+                    imports=imports,
+                    is_test=is_test,
+                )
+            )
+
         return symbols
 
     def _walk(
@@ -342,7 +408,7 @@ def has_syntax_error(source: str, file_path: str) -> Optional[Tuple[str, int]]:
     """
     parser = _Grammars.get(os.path.splitext(file_path)[1].lower())
     if parser is None:
-        return None  # Cannot validate without grammars; do not block the patch.
+        return _fallback_syntax_error(source)
 
     tree = parser.parse(source.encode("utf-8"))
     if not tree.root_node.has_error:
@@ -357,3 +423,37 @@ def has_syntax_error(source: str, file_path: str) -> Optional[Tuple[str, int]]:
         stack.extend(node.children)
 
     return ("invalid syntax", 1)
+
+
+def _fallback_syntax_error(source: str) -> Optional[Tuple[str, int]]:
+    pairs = {"(": ")", "[": "]", "{": "}"}
+    closers = {")": "(", "]": "[", "}": "{"}
+    stack: List[Tuple[str, int]] = []
+    in_string: Optional[str] = None
+    escaped = False
+
+    for line_no, line in enumerate(source.splitlines(), start=1):
+        for char in line:
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == in_string:
+                    in_string = None
+                continue
+            if char in ("'", '"', "`"):
+                in_string = char
+            elif char in pairs:
+                stack.append((char, line_no))
+            elif char in closers:
+                if not stack or stack[-1][0] != closers[char]:
+                    return (f"unexpected '{char}'", line_no)
+                stack.pop()
+
+    if in_string:
+        return ("unterminated string", len(source.splitlines()) or 1)
+    if stack:
+        opener, line_no = stack[-1]
+        return (f"missing '{pairs[opener]}'", line_no)
+    return None

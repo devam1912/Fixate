@@ -11,6 +11,7 @@ from fixate.llm.rate_limiter import LLM_RATE_LIMITER, estimate_tokens
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
+_UNSET = object()
 
 
 def _dummy_value_for_annotation(annotation):
@@ -54,10 +55,13 @@ class GeminiProvider(BaseLLMProvider):
 
     def __init__(
         self,
-        api_key: str | None = None,
+        api_key: str | None | object = _UNSET,
         model_name: str = "gemini-3.5-flash-lite",
     ):
-        self._api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if api_key is _UNSET:
+            self._api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        else:
+            self._api_key = api_key
         self._model_name = os.getenv("GEMINI_LLM_MODEL") or model_name
         self._client = None
 
