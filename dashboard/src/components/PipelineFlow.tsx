@@ -52,11 +52,16 @@ export const PipelineFlow: React.FC<PipelineFlowProps> = ({ summary, liveState }
   ];
 
   const getStageStatus = (stageId: string) => {
-    if (!summary || summary.state === 'IDLE') return 'pending';
-
     const stateOrder = ['LOCALIZING', 'RETRIEVING', 'PATCHING', 'VERIFYING', 'CHECKING_SAFETY'];
     const currentIdx = stateOrder.indexOf(currentState);
     const stageIdx = stateOrder.indexOf(stageId);
+
+    if ((!summary || summary.state === 'IDLE') && currentIdx === -1) return 'pending';
+    if (!summary && currentIdx > -1) {
+      if (stageIdx < currentIdx) return 'completed';
+      if (stageIdx === currentIdx) return 'active';
+      return 'pending';
+    }
 
     if (summary.state === 'FAILED') {
       if (stageId === 'VERIFYING' || stageIdx === currentIdx) return 'failed';
