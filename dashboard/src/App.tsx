@@ -424,7 +424,7 @@ export function App() {
                     {isFixing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-black" />}
                     {isFixing ? 'Fixing selected failure...' : 'Fix selected'}
                   </button>
-              </div>
+                </div>
 
                 {!scan ? (
                   <div className="empty-panel">
