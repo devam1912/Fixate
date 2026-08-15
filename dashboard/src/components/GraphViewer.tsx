@@ -1,11 +1,61 @@
 import React, { useEffect, useState } from 'react';
-import { GitBranch, Box, Layers, Search, Network, Grid, RefreshCw, FolderGit2 } from 'lucide-react';
+import {
+  Box,
+  CheckCircle2,
+  FileCode2,
+  FolderGit2,
+  GitBranch,
+  Grid,
+  Layers,
+  Network,
+  RefreshCw,
+  Search,
+} from 'lucide-react';
 import { CodeGraphData, CodeGraphNode } from '../types';
 
 interface GraphViewerProps {
   repoName: string;
   customRepoPath?: string;
 }
+
+const NODE_WIDTH = 214;
+const NODE_HEIGHT = 60;
+const GRAPH_WIDTH = 980;
+const GRAPH_COLUMNS = 3;
+const GRAPH_GAP_X = 44;
+const GRAPH_GAP_Y = 28;
+const GRAPH_START_X = 36;
+
+const nodeKindLabel = (node: CodeGraphNode) => {
+  if (node.is_test) return 'Test';
+  if (node.symbol_type === 'class') return 'Class';
+  if (node.symbol_type === 'method') return 'Method';
+  return 'Function';
+};
+
+const fileNameFromPath = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() || path;
+
+const folderNameFromPath = (path: string) => {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts.length > 1 ? parts[parts.length - 2] : 'root';
+};
+
+const compactTarget = (target: string) => {
+  if (!target) return 'sample repository';
+  const clean = target.replace(/\/$/, '');
+  if (clean.includes('github.com/')) {
+    return clean.split('github.com/')[1] || clean;
+  }
+  return clean.length > 56 ? `...${clean.slice(-53)}` : clean;
+};
+
+const inferLanguage = (nodes: CodeGraphNode[]) => {
+  const joined = nodes.map((node) => node.file_path.toLowerCase()).join(' ');
+  if (/\.(tsx?|jsx?)\b/.test(joined)) return 'TypeScript / JavaScript';
+  if (/\.(cpp|cc|cxx|hpp|h)\b/.test(joined)) return 'C++';
+  if (/\.py\b/.test(joined)) return 'Python';
+  return 'Mixed codebase';
+};
 
 export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoName, customRepoPath: initialCustomPath }) => {
   const [graphData, setGraphData] = useState<CodeGraphData | null>(null);
@@ -76,37 +126,38 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
     return true;
   });
 
-  // Calculate multi-tiered multi-row layout coordinates to prevent overlapping nodes
   const testNodes = nodes.filter((n) => n.is_test);
   const funcNodes = nodes.filter((n) => !n.is_test);
+  const visibleTestNodes = filteredNodes.filter((n) => n.is_test);
+  const visibleFuncNodes = filteredNodes.filter((n) => !n.is_test);
+  const visibleNodeIds = new Set(filteredNodes.map((node) => node.id));
+  const visibleEdges = edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target));
+  const activeTargetLabel = compactTarget(customPathInput || activeTargetRepo);
+  const languageLabel = inferLanguage(nodes);
 
   const nodePositions: { [id: string]: { x: number; y: number } } = {};
-  const width = 840;
+  const positionLane = (laneNodes: CodeGraphNode[], startY: number) => {
+    laneNodes.forEach((node, index) => {
+      const col = index % GRAPH_COLUMNS;
+      const row = Math.floor(index / GRAPH_COLUMNS);
+      nodePositions[node.id] = {
+        x: GRAPH_START_X + col * (NODE_WIDTH + GRAPH_GAP_X),
+        y: startY + row * (NODE_HEIGHT + GRAPH_GAP_Y),
+      };
+    });
+    return startY + Math.max(1, Math.ceil(laneNodes.length / GRAPH_COLUMNS)) * (NODE_HEIGHT + GRAPH_GAP_Y);
+  };
 
-  // Tier 1: Pytest nodes on top row
-  testNodes.forEach((node, idx) => {
-    const total = testNodes.length || 1;
-    const spacing = width / (total + 1);
-    nodePositions[node.id] = { x: spacing * (idx + 1), y: 70 };
-  });
+  const firstLaneLabel = visibleFuncNodes.length > 0 ? 'Product code' : 'Detected checks';
+  const firstLaneNodes = visibleFuncNodes.length > 0 ? visibleFuncNodes : visibleTestNodes;
+  const secondLaneNodes = visibleFuncNodes.length > 0 ? visibleTestNodes : [];
+  const firstLaneY = 112;
+  const secondLaneY = positionLane(firstLaneNodes, firstLaneY) + 52;
+  const layoutEndY = secondLaneNodes.length > 0 ? positionLane(secondLaneNodes, secondLaneY) : secondLaneY;
+  const canvasHeight = Math.max(440, layoutEndY + 42);
 
-  // Tier 2: Multi-row wrapped grid layout for Application Function nodes
-  const cols = Math.min(8, Math.max(4, Math.ceil(Math.sqrt(funcNodes.length))));
-  const numRows = Math.ceil(funcNodes.length / cols) || 1;
-  const colSpacing = width / (cols + 1);
-  const rowSpacing = 80;
-  const startY = 180;
-
-  funcNodes.forEach((node, idx) => {
-    const c = idx % cols;
-    const r = Math.floor(idx / cols);
-    nodePositions[node.id] = {
-      x: colSpacing * (c + 1),
-      y: startY + r * rowSpacing,
-    };
-  });
-
-  const canvasHeight = Math.max(450, startY + numRows * rowSpacing + 50);
+  const selectedIncoming = selectedNode ? edges.filter((edge) => edge.target === selectedNode.id).length : 0;
+  const selectedOutgoing = selectedNode ? edges.filter((edge) => edge.source === selectedNode.id).length : 0;
 
   return (
     <div className="space-y-6 my-6">
@@ -169,7 +220,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
                 AST Dependency Topology ({nodes.length} Nodes, {edges.length} Call Edges)
               </h2>
               <p className="text-xs text-zinc-400 font-sans mt-0.5 truncate max-w-md">
-                Active Codebase: <span className="text-emerald-300 font-mono font-semibold">{customPathInput || activeTargetRepo}</span>
+                Active codebase: <span className="text-emerald-300 font-mono font-semibold">{activeTargetLabel}</span>
               </p>
             </div>
 
@@ -229,7 +280,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
                     : 'bg-zinc-900 text-zinc-400 hover:text-white'
                 }`}
               >
-                Pytest ({testNodes.length})
+                Tests ({testNodes.length})
               </button>
             </div>
           </div>
@@ -248,15 +299,18 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
 
           {/* VISUAL SVG TOPOLOGY GRAPH */}
           {viewMode === 'visual' && (
-            <div className="relative bg-zinc-950/90 border border-zinc-800 rounded-2xl p-4 overflow-auto max-h-[520px] flex items-center justify-center">
+            <div className="relative bg-zinc-950/90 border border-zinc-800 rounded-2xl overflow-auto max-h-[560px]">
               {isLoading ? (
-                <div className="text-xs font-mono text-emerald-400 flex items-center gap-2 py-12">
+                <div className="text-xs font-mono text-emerald-400 flex items-center justify-center gap-2 py-16">
                   <RefreshCw className="w-4 h-4 animate-spin" /> Parsing AST Directed Dependency Graph...
                 </div>
               ) : nodes.length === 0 ? (
-                <div className="text-xs font-mono text-zinc-500 py-12">No AST nodes found in {activeTargetRepo}.</div>
+                <div className="empty-panel m-4">
+                  <FileCode2 className="w-7 h-7 text-zinc-600 mx-auto mb-2" />
+                  <p>No symbols were found in {activeTargetLabel}. Try a repository with Python, JS/TS, or C++ source files.</p>
+                </div>
               ) : (
-                <svg viewBox={`0 0 ${width} ${canvasHeight}`} className="w-full h-auto min-h-[420px]">
+                <svg viewBox={`0 0 ${GRAPH_WIDTH} ${canvasHeight}`} className="w-full h-auto min-h-[430px]">
                   <defs>
                     <marker
                       id="arrowhead-dynamic"
@@ -268,10 +322,41 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
                     >
                       <polygon points="0 0, 8 3, 0 6" fill="#10b981" />
                     </marker>
+                    <filter id="node-shadow" x="-20%" y="-20%" width="140%" height="140%">
+                      <feDropShadow dx="0" dy="10" stdDeviation="10" floodColor="#000000" floodOpacity="0.28" />
+                    </filter>
+                    <pattern id="graph-grid" width="36" height="36" patternUnits="userSpaceOnUse">
+                      <path d="M 36 0 L 0 0 0 36" fill="none" stroke="#27272a" strokeWidth="1" />
+                    </pattern>
                   </defs>
 
+                  <rect x="0" y="0" width={GRAPH_WIDTH} height={canvasHeight} fill="url(#graph-grid)" opacity="0.28" />
+                  <text x="36" y="36" fill="#f4f4f5" className="text-[14px] font-sans font-semibold">
+                    {visibleEdges.length > 0 ? 'Dependency path' : 'Symbol map'}
+                  </text>
+                  <text x="36" y="58" fill="#a1a1aa" className="text-[11px] font-sans">
+                    {visibleEdges.length > 0
+                      ? 'Click a symbol to inspect its call links and file location.'
+                      : 'No call links were detected in this view, so symbols are grouped for easier scanning.'}
+                  </text>
+                  <g transform="translate(760 24)">
+                    <rect width="178" height="34" rx="8" fill={visibleEdges.length > 0 ? '#052e25' : '#18181b'} stroke={visibleEdges.length > 0 ? '#047857' : '#3f3f46'} />
+                    <text x="14" y="21" fill={visibleEdges.length > 0 ? '#6ee7b7' : '#a1a1aa'} className="text-[11px] font-mono font-bold">
+                      {visibleEdges.length} visible edge{visibleEdges.length === 1 ? '' : 's'}
+                    </text>
+                  </g>
+
+                  <text x="36" y={firstLaneY - 24} fill="#34d399" className="text-[11px] font-mono font-bold uppercase tracking-wider">
+                    {firstLaneLabel}
+                  </text>
+                  {secondLaneNodes.length > 0 && (
+                    <text x="36" y={secondLaneY - 24} fill="#c084fc" className="text-[11px] font-mono font-bold uppercase tracking-wider">
+                      Verification checks
+                    </text>
+                  )}
+
                   {/* Render Directed Call Edges */}
-                  {edges.map((edge, idx) => {
+                  {visibleEdges.map((edge, idx) => {
                     const srcPos = nodePositions[edge.source];
                     const tgtPos = nodePositions[edge.target];
                     if (!srcPos || !tgtPos) return null;
@@ -282,13 +367,13 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
                     return (
                       <g key={`edge-${idx}`}>
                         <line
-                          x1={srcPos.x}
-                          y1={srcPos.y}
-                          x2={tgtPos.x}
-                          y2={tgtPos.y}
+                          x1={srcPos.x + NODE_WIDTH / 2}
+                          y1={srcPos.y + NODE_HEIGHT / 2}
+                          x2={tgtPos.x + NODE_WIDTH / 2}
+                          y2={tgtPos.y + NODE_HEIGHT / 2}
                           stroke={isConnectedToSelected ? '#10b981' : '#3f3f46'}
-                          strokeWidth={isConnectedToSelected ? '2.5' : '1.2'}
-                          strokeDasharray={isConnectedToSelected ? 'none' : '3 3'}
+                          strokeWidth={isConnectedToSelected ? '2.2' : '1.1'}
+                          strokeDasharray={isConnectedToSelected ? 'none' : '4 5'}
                           markerEnd="url(#arrowhead-dynamic)"
                           className="transition-all duration-300"
                         />
@@ -297,14 +382,17 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
                   })}
 
                   {/* Render Node Symbols */}
-                  {nodes.map((node) => {
-                    const pos = nodePositions[node.id] || { x: width / 2, y: canvasHeight / 2 };
+                  {filteredNodes.map((node) => {
+                    const pos = nodePositions[node.id] || { x: GRAPH_WIDTH / 2, y: canvasHeight / 2 };
                     const isSelected = selectedNode?.id === node.id;
-                    const isFiltered = filteredNodes.some((fn) => fn.id === node.id);
-
-                    if (!isFiltered) return null;
-
-                    const displayLabel = node.label.length > 16 ? node.label.slice(0, 13) + '...' : node.label;
+                    const isLinked =
+                      selectedNode?.id === node.id ||
+                      visibleEdges.some((edge) =>
+                        (edge.source === selectedNode?.id && edge.target === node.id) ||
+                        (edge.target === selectedNode?.id && edge.source === node.id)
+                      );
+                    const label = node.label.length > 34 ? `${node.label.slice(0, 31)}...` : node.label;
+                    const fileLabel = fileNameFromPath(node.file_path);
 
                     return (
                       <g
@@ -312,36 +400,39 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
                         onClick={() => setSelectedNode(node)}
                         className="cursor-pointer group"
                       >
-                        {isSelected && (
-                          <circle
-                            cx={pos.x}
-                            cy={pos.y}
-                            r="24"
-                            fill="none"
-                            stroke="#10b981"
-                            strokeWidth="2"
-                            className="animate-pulse"
-                          />
-                        )}
-
-                        <circle
-                          cx={pos.x}
-                          cy={pos.y}
-                          r="16"
-                          fill={isSelected ? '#059669' : node.is_test ? '#6b21a8' : '#0284c7'}
-                          stroke={isSelected ? '#34d399' : '#18181b'}
-                          strokeWidth="2"
-                          className="transition-all duration-200 group-hover:scale-125"
-                        />
-
-                        <text
+                        <rect
                           x={pos.x}
-                          y={pos.y + 28}
-                          textAnchor="middle"
-                          fill={isSelected ? '#10b981' : '#e4e4e7'}
-                          className="text-[10px] font-mono font-bold select-none"
+                          y={pos.y}
+                          width={NODE_WIDTH}
+                          height={NODE_HEIGHT}
+                          rx="10"
+                          fill={isSelected ? '#082f24' : node.is_test ? '#1c0f2e' : '#071d2a'}
+                          stroke={isSelected ? '#34d399' : isLinked ? '#10b981' : node.is_test ? '#6d28d9' : '#0e7490'}
+                          strokeWidth={isSelected ? '2' : '1'}
+                          filter={isSelected ? 'url(#node-shadow)' : undefined}
+                          className="transition-all duration-200 group-hover:opacity-95"
+                        />
+                        <circle
+                          cx={pos.x + 22}
+                          cy={pos.y + 30}
+                          r="8"
+                          fill={node.is_test ? '#a855f7' : '#06b6d4'}
+                        />
+                        <text
+                          x={pos.x + 40}
+                          y={pos.y + 25}
+                          fill="#f4f4f5"
+                          className="text-[11px] font-sans font-semibold select-none"
                         >
-                          {displayLabel}
+                          {label}
+                        </text>
+                        <text
+                          x={pos.x + 40}
+                          y={pos.y + 43}
+                          fill="#a1a1aa"
+                          className="text-[10px] font-mono select-none"
+                        >
+                          {nodeKindLabel(node)} / {fileLabel.length > 23 ? `${fileLabel.slice(0, 20)}...` : fileLabel}
                         </text>
                       </g>
                     );
@@ -379,6 +470,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
                           <span className="font-mono font-semibold text-xs truncate">{node.label}</span>
                         </div>
                         <div className="text-[10px] text-zinc-500 font-mono truncate">{node.file_path}</div>
+                        <div className="text-[10px] text-zinc-600 mt-1">{folderNameFromPath(node.file_path)}</div>
                       </button>
                     );
                   })}
@@ -408,7 +500,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
                 <div>
                   <span className="text-[10px] text-zinc-500 uppercase tracking-wider block mb-1">Symbol Type</span>
                   <div className="inline-block text-xs font-bold px-2.5 py-1 rounded-lg bg-zinc-900 text-emerald-300 border border-zinc-800 uppercase">
-                    {selectedNode.symbol_type}
+                    {nodeKindLabel(selectedNode)}
                   </div>
                 </div>
 
@@ -416,6 +508,17 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
                   <span className="text-[10px] text-zinc-500 uppercase tracking-wider block mb-1">File Location</span>
                   <div className="text-xs text-zinc-300 bg-zinc-950 p-2.5 rounded-xl border border-zinc-800 break-all leading-relaxed">
                     {selectedNode.file_path}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-2.5">
+                    <span className="text-[10px] text-zinc-500 uppercase tracking-wider block">Calls out</span>
+                    <span className="text-lg font-semibold text-white">{selectedOutgoing}</span>
+                  </div>
+                  <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-2.5">
+                    <span className="text-[10px] text-zinc-500 uppercase tracking-wider block">Called by</span>
+                    <span className="text-lg font-semibold text-white">{selectedIncoming}</span>
                   </div>
                 </div>
 
@@ -428,7 +531,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
                         : 'bg-emerald-950/40 text-emerald-300 border-emerald-800/50'
                     }`}
                   >
-                    {selectedNode.is_test ? 'Pytest Unit Verification Case' : 'Core Application Symbol'}
+                    {selectedNode.is_test ? 'Verification check' : 'Product code symbol'}
                   </div>
                 </div>
               </div>
@@ -440,7 +543,7 @@ export const GraphViewer: React.FC<GraphViewerProps> = ({ repoName: initialRepoN
           </div>
 
           <div className="pt-4 border-t border-zinc-800 mt-6 flex items-center justify-between text-[11px] font-mono text-zinc-500">
-            <span>Language AST: Python 3.11</span>
+            <span>Language graph: {languageLabel}</span>
             <GitBranch className="w-3.5 h-3.5 text-emerald-400" />
           </div>
         </div>

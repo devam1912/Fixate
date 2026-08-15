@@ -5,17 +5,36 @@ import { GeneratedPatch, RiskAssessment } from '../types';
 interface DiffViewerProps {
   patch?: GeneratedPatch;
   risk?: RiskAssessment;
+  failureReport?: string | null;
 }
 
-export const DiffViewer: React.FC<DiffViewerProps> = ({ patch, risk }) => {
+export const DiffViewer: React.FC<DiffViewerProps> = ({ patch, risk, failureReport }) => {
   const [copied, setCopied] = useState(false);
 
   if (!patch) {
+    if (failureReport) {
+      return (
+        <div className="glass-card p-6 rounded-3xl border border-rose-900/70 bg-rose-950/20 my-6">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 shrink-0">
+              <AlertTriangle className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-xs font-mono font-semibold uppercase text-rose-200">Repair stopped before a patch was generated</h3>
+              <pre className="mt-3 whitespace-pre-wrap text-xs leading-relaxed text-rose-100/85 font-mono bg-black/35 border border-rose-900/60 rounded-xl p-4 max-h-[360px] overflow-auto">
+                {failureReport}
+              </pre>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="glass-card p-10 rounded-3xl border border-white/[0.08] text-center text-zinc-500 my-6">
         <FileCode className="w-10 h-10 mx-auto mb-3 text-zinc-600 opacity-40" />
         <h3 className="text-xs font-mono font-semibold uppercase text-zinc-400">No Patch Generated Yet</h3>
-        <p className="text-xs text-zinc-500 mt-1">Select a broken target codebase above and click 'Trigger Self-Healing Fix'.</p>
+        <p className="text-xs text-zinc-500 mt-1">Scan a repository, select a failure, then click Fix selected.</p>
       </div>
     );
   }

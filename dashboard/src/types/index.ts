@@ -27,6 +27,8 @@ export interface RiskAssessment {
 export interface IncidentSummary {
   incident_id: string;
   state: 'IDLE' | 'LOCALIZING' | 'RETRIEVING' | 'PATCHING' | 'VERIFYING' | 'CHECKING_SAFETY' | 'COMPLETED' | 'FAILED' | 'PENDING_APPROVAL';
+  language?: string;
+  verified_by?: string;
   failing_test: string;
   exception_type: string;
   target_file?: string;
@@ -36,6 +38,41 @@ export interface IncidentSummary {
   total_attempts: number;
   failure_report?: string;
   telemetry_events: TelemetryEvent[];
+  pull_request?: PullRequestResult;
+}
+
+export interface PullRequestResult {
+  url: string;
+  branch: string;
+  base: string;
+}
+
+export interface RepositoryFailure {
+  failure_id: string;
+  language: string;
+  test_name: string;
+  exception_type: string;
+  exception_message: string;
+  failing_file: string;
+  failing_line: number;
+  raw_log: string;
+}
+
+export interface RepositoryLanguageReport {
+  language: string;
+  status: 'failed' | 'passed' | 'no_tests' | 'no_output' | 'unparsed_failure' | 'not_run';
+  install_detail: string;
+  failure_count: number;
+  log_excerpt: string;
+}
+
+export interface RepositoryScan {
+  scan_id: string;
+  repo_path: string;
+  repo_url?: string;
+  languages: RepositoryLanguageReport[];
+  failures: RepositoryFailure[];
+  total_failures: number;
 }
 
 export interface CodeGraphNode {

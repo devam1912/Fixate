@@ -215,24 +215,18 @@ export function App() {
     mode === 'sample';
 
   return (
-    <div className="min-h-screen bg-black text-zinc-100 flex flex-col font-sans selection:bg-zinc-800 selection:text-white">
+    <div className="min-h-screen bg-black text-zinc-100 flex flex-col selection:bg-emerald-500/30 selection:text-white">
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
-        {/* Error Alert Banner */}
+      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-7">
         {errorMessage && (
-          <div className="mb-6 p-4 rounded-xl bg-rose-950/80 border border-rose-800/80 text-rose-200 text-xs font-mono flex items-start gap-3 shadow-lg animate-in fade-in slide-in-from-top-2">
-            <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+          <div className="mb-5 p-4 rounded-lg bg-rose-950/70 border border-rose-800/80 text-rose-100 text-sm flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-rose-300 shrink-0 mt-0.5" />
             <div className="flex-1">
-              <span className="font-bold uppercase tracking-wider block mb-1">Execution Warning:</span>
-              <p className="leading-relaxed">{errorMessage}</p>
+              <div className="font-semibold">Something needs attention</div>
+              <p className="text-rose-200/80 text-xs mt-1">{errorMessage}</p>
             </div>
-            <button
-              onClick={() => setErrorMessage(null)}
-              className="text-rose-400 hover:text-rose-100 font-bold px-2 py-0.5 rounded hover:bg-rose-900/50 transition-colors"
-            >
-              ✕
-            </button>
+            <button onClick={() => setErrorMessage(null)} className="text-rose-300 hover:text-white">x</button>
           </div>
         )}
 
@@ -243,6 +237,7 @@ export function App() {
               <div className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white">
                 <Sparkles className="w-5 h-5 text-emerald-400" />
               </div>
+        )}
               <div>
                 <h2 className="text-sm font-mono font-bold uppercase tracking-wider text-white flex items-center gap-2">
                   Repository Self-Healing Trigger
@@ -290,24 +285,14 @@ export function App() {
             </div>
           </div>
 
-          {/* Mode 1: GitHub Repo URL */}
-          {mode === 'github' && (
-            <div className="mt-5 space-y-4">
-              <div>
-                <label className="text-xs font-mono text-zinc-300 font-semibold block mb-2 flex items-center gap-2">
-                  <Github className="w-4 h-4 text-emerald-400" />
-                  GitHub Repository URL (or `owner/repo`):
-                </label>
-                <input
-                  type="text"
-                  placeholder="https://github.com/pallets/flask  or  pallets/flask"
-                  value={githubUrl}
-                  onChange={(e) => setGithubUrl(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-2.5 text-xs font-mono text-white focus:outline-none focus:border-zinc-500"
-                />
-                <p className="text-[11px] font-mono text-zinc-500 mt-1.5">
-                  Fixate requires a Python repository containing .py files. It will clone the repository, run pytest, build AST graph, retrieve context, and generate a verified diff patch.
-                </p>
+        {activeTab === 'workbench' && (
+          <div className="space-y-6">
+            <section className="relative overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950 min-h-[260px]">
+              <div className="signal-grid absolute inset-0 opacity-70" />
+              <div className="absolute inset-y-0 right-0 w-1/2 scan-visual hidden lg:block">
+                <div className="trace trace-a" />
+                <div className="trace trace-b" />
+                <div className="trace trace-c" />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -14,7 +14,11 @@
 
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', Roboto, sans-serif;
-    background-color: var(--bg-main);
+    background:
+      linear-gradient(180deg, rgba(20, 20, 22, 0.72), rgba(0, 0, 0, 0.94) 260px),
+      radial-gradient(circle at 16% 8%, rgba(16, 185, 129, 0.10), transparent 28%),
+      radial-gradient(circle at 82% 12%, rgba(14, 165, 233, 0.08), transparent 30%),
+      var(--bg-main);
     color: var(--text-primary);
     overflow-x: hidden;
   }
@@ -24,7 +28,6 @@
   }
 }
 
-/* Pure Black Vercel / GitHub Dark Style Card */
 .glass-card {
   background: var(--card-bg);
   border: 1px solid var(--border-subtle);
@@ -53,4 +56,89 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #3f3f46;
+}
+
+.signal-grid {
+  background-image:
+    linear-gradient(rgba(63, 63, 70, 0.32) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(63, 63, 70, 0.32) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, 0.84) 58%, transparent 100%);
+}
+
+.scan-visual {
+  background:
+    linear-gradient(90deg, transparent, rgba(16, 185, 129, 0.08), transparent),
+    linear-gradient(135deg, transparent 0 44%, rgba(14, 165, 233, 0.18) 45% 46%, transparent 47% 100%);
+  animation: panelGlow 5s ease-in-out infinite alternate;
+}
+
+.scan-visual::before {
+  content: "";
+  position: absolute;
+  inset: 20px 36px;
+  border: 1px solid rgba(113, 113, 122, 0.28);
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, transparent, rgba(16, 185, 129, 0.16), transparent) 0 0 / 44% 100% no-repeat,
+    rgba(0, 0, 0, 0.22);
+  animation: sweep 3.4s ease-in-out infinite;
+}
+
+.trace {
+  position: absolute;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(16, 185, 129, 0.82), rgba(14, 165, 233, 0.7), transparent);
+  box-shadow: 0 0 18px rgba(16, 185, 129, 0.2);
+}
+
+.trace-a {
+  width: 42%;
+  top: 33%;
+  right: 17%;
+  animation: traceDrift 4.2s ease-in-out infinite;
+}
+
+.trace-b {
+  width: 56%;
+  top: 52%;
+  right: 8%;
+  animation: traceDrift 5s ease-in-out infinite reverse;
+}
+
+.trace-c {
+  width: 34%;
+  top: 69%;
+  right: 27%;
+  animation: traceDrift 4.8s ease-in-out infinite;
+}
+
+.empty-panel {
+  min-height: 190px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  border: 1px dashed rgba(63, 63, 70, 0.9);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #71717a;
+  font-size: 0.8125rem;
+  padding: 1.5rem;
+}
+
+@keyframes sweep {
+  0%, 100% { background-position: -60% 0; }
+  50% { background-position: 150% 0; }
+}
+
+@keyframes traceDrift {
+  0%, 100% { transform: translateX(-8px); opacity: 0.45; }
+  50% { transform: translateX(10px); opacity: 1; }
+}
+
+@keyframes panelGlow {
+  from { opacity: 0.72; }
+  to { opacity: 1; }
 }
