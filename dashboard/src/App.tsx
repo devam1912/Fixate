@@ -322,7 +322,6 @@ export function App() {
                         <button
                           key={repo.id}
                           onClick={() => setSelectedRepo(repo.id)}
-            </section>
                           className={`rounded-lg border p-3 text-left transition ${
                             selectedRepo === repo.id
                               ? 'border-emerald-500/60 bg-emerald-500/10'
@@ -368,6 +367,8 @@ export function App() {
                     {isScanning ? 'Scanning repository...' : 'Scan all failures'}
                   </button>
                 </div>
+              </div>
+            </section>
 
             <section className="grid grid-cols-1 lg:grid-cols-[0.92fr_1.08fr] gap-6">
               <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-5">
@@ -423,7 +424,6 @@ export function App() {
                     {isFixing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-black" />}
                     {isFixing ? 'Fixing selected failure...' : 'Fix selected'}
                   </button>
-                </div>
               </div>
 
                 {!scan ? (
