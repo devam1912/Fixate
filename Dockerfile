@@ -36,14 +36,16 @@ RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 
 WORKDIR /app
 
-# Copy dependency specifications & install Python dependencies
+# Copy dependency specifications and backend source before editable install.
+# Installing `-e .` before the package exists can leave the image relying on
+# incidental import paths instead of a real installed project.
 COPY requirements.txt pyproject.toml README.md ./
+COPY fixate/ ./fixate/
 RUN pip install --no-cache-dir uv && \
     uv pip install --system --no-cache -r requirements.txt && \
     uv pip install --system --no-cache -e .
 
-# Copy backend source code & sample benchmark repos
-COPY fixate/ ./fixate/
+# Copy sample benchmark repos
 COPY sample_repos/ ./sample_repos/
 
 # Copy built React SPA static bundle from Stage 1 into /app/dashboard/dist

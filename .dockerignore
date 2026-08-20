@@ -7,6 +7,8 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+.ruff_cache/
+.uv-cache/
 node_modules/
 dashboard/node_modules/
 dashboard/dist/
@@ -14,6 +16,13 @@ scratch/
 dist/
 build/
 *.log
+tmp/
+output/
+.tmp/
+fixate.egg-info/
+telemetry_logs/
+chroma_db/
+fix_history.json
 
 # Sample repo dependencies are installed at runtime, never baked into the image.
 sample_repos/**/node_modules

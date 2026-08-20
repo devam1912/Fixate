@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: fixate
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: FIXATE_LLM_PROVIDER
+        value: gemini
