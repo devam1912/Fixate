@@ -7,6 +7,7 @@ import glob
 import logging
 import uuid
 import subprocess
+import time
 from typing import Optional
 from typing import Dict, List
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -634,7 +635,9 @@ def _git(repo_path: str, args: List[str], check: bool = True) -> subprocess.Comp
         timeout=120,
     )
     if check and result.returncode != 0:
-        raise HTTPException(status_code=400, detail=(result.stderr or result.stdout or "git command failed")[:1000])
+        detail = result.stderr or result.stdout or "git command failed"
+        detail = re.sub(r"https://x-access-token:[^@]+@", "https://x-access-token:<redacted>@", detail)
+        raise HTTPException(status_code=400, detail=detail[:1000])
     return result
 
 
@@ -645,25 +648,81 @@ def _default_branch(repo_path: str) -> str:
     return "main"
 
 
-def _create_pull_request(owner: str, repo: str, branch: str, base: str, title: str, body: str) -> str:
-    token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
-    if not token:
-        raise HTTPException(
-            status_code=400,
-            detail="PR creation needs GITHUB_TOKEN or GH_TOKEN configured on the server.",
-        )
+def _github_headers(token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
 
+
+def _github_request(method: str, path: str, token: str, **kwargs):
     import requests
 
-    response = requests.post(
-        f"https://api.github.com/repos/{owner}/{repo}/pulls",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-        json={"title": title, "head": branch, "base": base, "body": body},
+    return requests.request(
+        method,
+        f"https://api.github.com{path}",
+        headers=_github_headers(token),
         timeout=30,
+        **kwargs,
+    )
+
+
+def _github_login(token: str) -> str:
+    response = _github_request("GET", "/user", token)
+    if response.status_code != 200:
+        raise HTTPException(status_code=400, detail=f"GitHub authentication failed: {response.text[:500]}")
+    login = response.json().get("login")
+    if not login:
+        raise HTTPException(status_code=400, detail="GitHub did not return an authenticated user login.")
+    return login
+
+
+def _ensure_push_target(owner: str, repo: str, token: str) -> tuple[str, str, str]:
+    """Return ``(head_owner, remote_owner, push_url)`` for the PR branch."""
+    login = _github_login(token)
+    if login.lower() == owner.lower():
+        return login, owner, f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
+
+    existing = _github_request("GET", f"/repos/{login}/{repo}", token)
+    if existing.status_code == 200:
+        data = existing.json()
+        parent = (data.get("parent") or {}).get("full_name")
+        source = (data.get("source") or {}).get("full_name")
+        if parent == f"{owner}/{repo}" or source == f"{owner}/{repo}":
+            return login, login, f"https://x-access-token:{token}@github.com/{login}/{repo}.git"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"GitHub account '{login}' already has a repository named '{repo}', "
+                "but it is not a fork of the target repository. Rename it or create the fork manually."
+            ),
+        )
+    if existing.status_code not in (404,):
+        raise HTTPException(status_code=400, detail=f"Could not inspect GitHub fork: {existing.text[:500]}")
+
+    created = _github_request("POST", f"/repos/{owner}/{repo}/forks", token)
+    if created.status_code not in (200, 201, 202):
+        raise HTTPException(status_code=400, detail=f"Could not create GitHub fork: {created.text[:700]}")
+
+    for _ in range(10):
+        ready = _github_request("GET", f"/repos/{login}/{repo}", token)
+        if ready.status_code == 200:
+            return login, login, f"https://x-access-token:{token}@github.com/{login}/{repo}.git"
+        time.sleep(1)
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"GitHub fork for '{login}/{repo}' was created but was not ready yet. Try creating the PR again.",
+    )
+
+
+def _create_pull_request(owner: str, repo: str, head: str, base: str, title: str, body: str, token: str) -> str:
+    response = _github_request(
+        "POST",
+        f"/repos/{owner}/{repo}/pulls",
+        token,
+        json={"title": title, "head": head, "base": base, "body": body},
     )
     if response.status_code not in (200, 201):
         raise HTTPException(status_code=400, detail=f"GitHub PR creation failed: {response.text[:1000]}")
@@ -705,6 +764,9 @@ def create_pull_request_for_incident(incident_id: str, req: PullRequestRequest):
     if not token:
         raise HTTPException(status_code=400, detail="Set GITHUB_TOKEN or GH_TOKEN before creating PRs.")
 
+    head_owner, remote_owner, push_url = _ensure_push_target(owner, repo, token)
+    head = f"{head_owner}:{branch}" if head_owner.lower() != owner.lower() else branch
+
     _git(repo_path, ["config", "user.name", "Fixate Bot"])
     _git(repo_path, ["config", "user.email", "fixate-bot@example.invalid"])
     _git(repo_path, ["checkout", "-B", branch])
@@ -714,10 +776,17 @@ def create_pull_request_for_incident(incident_id: str, req: PullRequestRequest):
         raise HTTPException(status_code=400, detail="No file changes are staged for this incident.")
     _git(repo_path, ["commit", "-m", title])
 
-    push_url = f"https://x-access-token:{token}@github.com/{owner}/{repo}.git"
     _git(repo_path, ["push", push_url, f"HEAD:{branch}"])
-    pr_url = _create_pull_request(owner, repo, branch, base, title, body)
-    summary["pull_request"] = {"url": pr_url, "branch": branch, "base": base}
+    pr_url = _create_pull_request(owner, repo, head, base, title, body, token)
+    summary["pull_request"] = {
+        "url": pr_url,
+        "branch": branch,
+        "base": base,
+        "head": head,
+        "head_owner": head_owner,
+        "head_repository": f"{remote_owner}/{repo}",
+        "base_repository": f"{owner}/{repo}",
+    }
     return summary["pull_request"]
 
 

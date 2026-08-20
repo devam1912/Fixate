@@ -200,7 +200,8 @@ export function App() {
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.detail || 'Could not create pull request');
-      setPrMessage(`Pull request opened: ${body.url}`);
+      const headLabel = body.head ? ` from ${body.head}` : '';
+      setPrMessage(`Pull request opened${headLabel}: ${body.url}`);
       setIncidentSummary({ ...incidentSummary, pull_request: body });
     } catch (err: any) {
       setErrorMessage(err.message || 'Could not create pull request.');

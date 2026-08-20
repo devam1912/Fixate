@@ -257,3 +257,86 @@ def test_missing_static_css_returns_404_not_index_html():
     """Missing CSS files should return 404, not fallback index.html which triggers MIME errors."""
     response = client.get("/nonexistent_style.css")
     assert response.status_code == 404
+
+
+def test_pull_request_uses_authenticated_fork_head(monkeypatch, tmp_path):
+    import fixate.api.routes as routes
+
+    incident_id = "inc_prfork"
+    routes.INCIDENT_RESULTS[incident_id] = {
+        "incident_id": incident_id,
+        "state": "PENDING_APPROVAL",
+        "failing_test": "test_checkout",
+        "suspect_function": "checkout",
+        "verified_by": "pytest",
+        "risk_assessment": {"risk_level": "LOW"},
+        "verified_patch": {
+            "target_file": "src/cart.py",
+            "unified_diff": "--- a/src/cart.py\n+++ b/src/cart.py\n",
+            "explanation": "Fix cart total.",
+            "lines_changed": 1,
+        },
+    }
+    routes.INCIDENT_CONTEXTS[incident_id] = {
+        "repo_path": str(tmp_path),
+        "repo_url": "https://github.com/source-owner/shop.git",
+    }
+
+    monkeypatch.setenv("GITHUB_TOKEN", "token-value")
+    monkeypatch.setattr(
+        routes,
+        "_ensure_push_target",
+        lambda owner, repo, token: (
+            "devam1912",
+            "devam1912",
+            "https://x-access-token:token-value@github.com/devam1912/shop.git",
+        ),
+    )
+    monkeypatch.setattr(routes, "_default_branch", lambda _repo_path: "main")
+
+    git_calls = []
+
+    class GitResult:
+        def __init__(self, returncode=0):
+            self.returncode = returncode
+            self.stdout = ""
+            self.stderr = ""
+
+    def fake_git(_repo_path, args, check=True):
+        git_calls.append(args)
+        if args == ["diff", "--cached", "--quiet"]:
+            return GitResult(returncode=1)
+        return GitResult()
+
+    pr_call = {}
+
+    def fake_create_pr(owner, repo, head, base, title, body, token):
+        pr_call.update(
+            {
+                "owner": owner,
+                "repo": repo,
+                "head": head,
+                "base": base,
+                "title": title,
+                "token": token,
+            }
+        )
+        return "https://github.com/source-owner/shop/pull/7"
+
+    monkeypatch.setattr(routes, "_git", fake_git)
+    monkeypatch.setattr(routes, "_create_pull_request", fake_create_pr)
+
+    result = routes.create_pull_request_for_incident(
+        incident_id,
+        routes.PullRequestRequest(),
+    )
+
+    assert any(
+        call[:2] == ["push", "https://x-access-token:token-value@github.com/devam1912/shop.git"]
+        for call in git_calls
+    )
+    assert pr_call["head"] == "devam1912:fixate/inc_prfork-cart"
+    assert pr_call["base"] == "main"
+    assert result["head"] == "devam1912:fixate/inc_prfork-cart"
+    assert result["head_repository"] == "devam1912/shop"
+    assert result["base_repository"] == "source-owner/shop"

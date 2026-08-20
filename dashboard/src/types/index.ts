@@ -45,6 +45,10 @@ export interface PullRequestResult {
   url: string;
   branch: string;
   base: string;
+  head?: string;
+  head_owner?: string;
+  head_repository?: string;
+  base_repository?: string;
 }
 
 export interface RepositoryFailure {
